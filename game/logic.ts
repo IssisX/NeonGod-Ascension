@@ -4,17 +4,14 @@ import { Utils } from '../utils';
 import { SpatialGrid, VisualGrid } from './grids';
 
 // --- POOLS & FACTORIES ---
-
+// (Factories remain the same, simplified for brevity in this update)
 export const Factories = {
   bullet: () => ({ id: '', x: 0, y: 0, vx: 0, vy: 0, life: 0, color: '', dmg: 0, pierce: 0, homing: 0, size: 3, active: false }),
   resetBullet: (b: any) => { b.id = ''; b.x = 0; b.y = 0; b.vx = 0; b.vy = 0; b.life = 0; b.color = ''; b.dmg = 0; b.pierce = 0; b.homing = 0; b.size = 3; b.active = false; },
-  
   enemy: () => ({ id: '', x: 0, y: 0, vx: 0, vy: 0, hp: 0, maxHp: 0, type: 'chaser', speed: 0, size: 0, color: '', isElite: false, affixes: [], affixTimer: 0, xp: 0, score: 0, shootTimer: 0, attackTimer: 0, phase: 0, dead: false, active: false, life: 0, hitFlash: 0, rotation: 0, spawnAnim: 0 }),
   resetEnemy: (e: any) => { e.id = ''; e.x = 0; e.y = 0; e.vx = 0; e.vy = 0; e.hp = 0; e.maxHp = 0; e.type = 'chaser'; e.speed = 0; e.size = 0; e.color = ''; e.isElite = false; e.affixes = []; e.affixTimer = 0; e.xp = 0; e.score = 0; e.shootTimer = 0; e.attackTimer = 0; e.phase = 0; e.dead = false; e.active = false; e.life = 0; e.hitFlash = 0; e.rotation = 0; e.spawnAnim = 0; },
-  
   particle: () => ({ x: 0, y: 0, vx: 0, vy: 0, life: 0, maxLife: 0, color: '', size: 0, friction: 0.92, type: 'glow', active: false, rotation: 0, rotationSpeed: 0 }),
   resetParticle: (p: any) => { p.x = 0; p.y = 0; p.vx = 0; p.vy = 0; p.life = 0; p.maxLife = 0; p.color = ''; p.size = 0; p.friction = 0.92; p.type = 'glow'; p.active = false; p.rotation = 0; p.rotationSpeed = 0; },
-  
   gem: () => ({ x: 0, y: 0, vx: 0, vy: 0, val: 0, life: 0, active: false }),
   resetGem: (g: any) => { g.x = 0; g.y = 0; g.vx = 0; g.vy = 0; g.val = 0; g.life = 0; g.active = false; },
   pickup: () => ({ x: 0, y: 0, vx: 0, vy: 0, type: 'heal', life: 0, active: false }),
@@ -90,9 +87,10 @@ export function createGameState(width: number, height: number): GameState {
 }
 
 export const createExplosion = (s: GameState, x: number, y: number, color: string, count = 10, speed = 1) => {
-    if (s.particles.length > s.qualitySettings.particles) return;
-    if (s.visualGrid) s.visualGrid.applyForce(x, y, 150 * speed, 10 * speed);
+    // Inject Force into Ether
+    if (s.visualGrid) s.visualGrid.applyForce(x, y, 150 * speed, 12 * speed);
     
+    // Normal Debris Logic
     const maxCount = Math.min(count, s.qualitySettings.particles - s.particles.length);
     for (let i = 0; i < maxCount; i++) {
         const p = s.pools.particles.acquire(); if (!p) break;
@@ -123,30 +121,22 @@ export const createEvolutionEffect = (s: GameState, x: number, y: number, color:
     setTimeout(() => {
         s.shockwaves.push({ x, y, size: 10, maxSize: 800, color: '#ffffff', speed: 20, alpha: 0.8, width: 30 });
     }, 100);
+    // Huge Ether disturbance
     if (s.visualGrid) s.visualGrid.applyForce(x, y, 800, 100);
     createFloatingText(s, x, y - 100, "EVOLUTION!", color, 40);
 };
 
 const createShockwave = (s: GameState, x: number, y: number, size: number, color: string, speed = 2) => {
     s.shockwaves.push({ x, y, size: 5, maxSize: size, color, speed, alpha: 1, width: 20 });
+    // Shockwave interacts with Ether
     if (s.visualGrid) s.visualGrid.applyForce(x, y, size / 3, speed * 25);
 };
 
+// ... [Helper functions like createFloatingText, createGem, createPickup stay the same] ...
 const createFloatingText = (s: GameState, x: number, y: number, text: string, color = '#fff', size = 16) => {
-    // Kinetic Pop
-    const angle = Utils.rand(-Math.PI / 2 - 0.5, -Math.PI / 2 + 0.5); // Upwards spread
+    const angle = Utils.rand(-Math.PI / 2 - 0.5, -Math.PI / 2 + 0.5); 
     const speed = Utils.rand(2, 5);
-    s.texts.push({ 
-        x, 
-        y, 
-        text, 
-        life: 60, 
-        maxLife: 60,
-        vx: Math.cos(angle) * speed,
-        vy: Math.sin(angle) * speed,
-        color, 
-        size 
-    });
+    s.texts.push({ x, y, text, life: 60, maxLife: 60, vx: Math.cos(angle) * speed, vy: Math.sin(angle) * speed, color, size });
 };
 
 const createGem = (s: GameState, x: number, y: number, val: number) => {
@@ -163,11 +153,10 @@ const createPickup = (s: GameState, x: number, y: number) => {
     s.pickups.push(p);
 };
 
+// ... [Auto Pilot logic stays same] ...
 function calculateAutoPilot(s: GameState): { mx: number; my: number; aimAngle: number; shoot: boolean; dash: boolean; ult: boolean } {
     const p = s.player;
-    let moveX = 0;
-    let moveY = 0;
-    let totalDanger = 0;
+    let moveX = 0; let moveY = 0; let totalDanger = 0;
     const searchRadius = 250;
     const nearby = s.spatialGrid.queryRadius(p.x, p.y, searchRadius);
     let nearestEnemy: Enemy | null = null;
@@ -221,9 +210,7 @@ function calculateAutoPilot(s: GameState): { mx: number; my: number; aimAngle: n
         const futureX = nearestEnemy.x + nearestEnemy.vx * timeToHit;
         const futureY = nearestEnemy.y + nearestEnemy.vy * timeToHit;
         aimAngle = Math.atan2(futureY - p.y, futureX - p.x);
-    } else {
-        aimAngle = s.frame * 0.05; 
-    }
+    } else { aimAngle = s.frame * 0.05; }
 
     const dash = (totalDanger > 4.0 || (p.hp < p.maxHp * 0.3 && totalDanger > 1.0));
     const ult = (s.enemies.length > 20 && s.overdrive >= 100);
@@ -240,7 +227,6 @@ interface GameCallbacks {
 }
 
 export function updateGame(s: GameState, callbacks: GameCallbacks) {
-    // ... [Previous update logic remains the same until spawn logic] ...
     const enemyStress = Math.min(1, s.enemies.length / 30);
     const healthStress = 1 - (s.player.hp / s.player.maxHp);
     const bossStress = s.bossActive ? 0.3 : 0;
@@ -261,16 +247,16 @@ export function updateGame(s: GameState, callbacks: GameCallbacks) {
 
     const step = s.quality === 'LOW' ? 3 : s.quality === 'MEDIUM' ? 2 : 1;
     if (s.frame % step === 0) { s.spatialGrid.clear(); for (const e of s.enemies) if (e.active) s.spatialGrid.insert(e); }
+    // Update Ether Grid
     s.visualGrid.update(s.qualitySettings.gridStep);
 
     const p = s.player;
     if (p.hitFlash > 0) p.hitFlash--;
     if (p.muzzleFlash > 0) p.muzzleFlash--;
     
+    // ... [Input and Movement logic mostly same] ...
     let mx = 0, my = 0;
-    let autoShooting = false;
-    let autoDash = false;
-    let autoUlt = false;
+    let autoShooting = false; let autoDash = false; let autoUlt = false;
 
     if (s.autoMode) {
         const ai = calculateAutoPilot(s);
@@ -303,6 +289,12 @@ export function updateGame(s: GameState, callbacks: GameCallbacks) {
     p.x = Utils.clamp(p.x + p.vx * s.timeScale, 0, s.width);
     p.y = Utils.clamp(p.y + p.vy * s.timeScale, 0, s.height);
 
+    // INJECT PLAYER VELOCITY INTO ETHER
+    if (Math.abs(p.vx) > 0.1 || Math.abs(p.vy) > 0.1) {
+        s.visualGrid.addVelocity(p.x, p.y, p.vx * 2, p.vy * 2);
+    }
+
+    // Engine Particles
     if (Math.hypot(p.vx, p.vy) > 0.5 && s.frame % 3 === 0) {
         const backAngle = p.angle + Math.PI;
         const spawnThruster = (offsetAng: number) => {
@@ -325,9 +317,12 @@ export function updateGame(s: GameState, callbacks: GameCallbacks) {
         Object.values(s.touches).forEach(t => { if (t.type === 'aim') { const dx = t.x - t.originX, dy = t.y - t.originY; if (Math.hypot(dx, dy) > 10) shooting = true; } });
     }
 
+    // Ult Logic
     const triggerUlt = s.autoMode ? autoUlt : (s.keys.f && s.overdrive >= 100);
     if (triggerUlt && s.overdrive >= 100) {
         s.overdrive = 0; callbacks.playSound('ultimate'); createShockwave(s, p.x, p.y, 1500, CONFIG.COLORS.ULTIMATE, 25); s.shake = 30;
+        // Warp the Ether on Ult
+        s.visualGrid.applyForce(p.x, p.y, 600, 100);
         s.bullets.forEach(b => { s.pools.bullets.release(b); }); s.bullets = [];
         for (const e of s.enemies) {
             if(e.active) {
@@ -340,6 +335,7 @@ export function updateGame(s: GameState, callbacks: GameCallbacks) {
         }
     }
 
+    // Dash Logic
     const triggerDash = s.autoMode ? autoDash : (s.keys.space || s.keys.shift);
     if (triggerDash && p.dashCd <= 0) {
       callbacks.playSound('dash'); p.dashCd = p.maxDashCd; p.invuln = CONFIG.PLAYER.DASH.INVULN_DURATION;
@@ -352,6 +348,9 @@ export function updateGame(s: GameState, callbacks: GameCallbacks) {
           if (dmx === 0 && dmy === 0) { dmx = Math.cos(p.angle); dmy = Math.sin(p.angle); } else { const m = Math.hypot(dmx, dmy) || 1; dmx /= m; dmy /= m; }
       }
       p.vx = dmx * CONFIG.PLAYER.DASH.SPEED; p.vy = dmy * CONFIG.PLAYER.DASH.SPEED;
+      // Dash Wake in Ether
+      s.visualGrid.addVelocity(p.x, p.y, p.vx * 4, p.vy * 4);
+      
       createShockwave(s, p.x, p.y, 200, CONFIG.COLORS.PLAYER_DASH, 10);
       for (let i = 0; i < 5; i++) {
         const particle = s.pools.particles.acquire();
@@ -387,10 +386,15 @@ export function updateGame(s: GameState, callbacks: GameCallbacks) {
       p.vx -= Math.cos(p.angle) * 0.8; p.vy -= Math.sin(p.angle) * 0.8;
     }
 
-    // UPDATE ENTITIES (Enemies, Physics, Collision)
+    // UPDATE ENTITIES
     for (let i = s.enemies.length - 1; i >= 0; i--) {
       const e = s.enemies[i];
       if (!e.active || e.dead) continue;
+      // Enemies drag the ether slightly
+      if (Math.abs(e.vx) > 0.1 || Math.abs(e.vy) > 0.1) {
+          s.visualGrid.addVelocity(e.x, e.y, e.vx * 0.5, e.vy * 0.5);
+      }
+      // ... [Existing enemy update logic unchanged] ...
       if (e.hitFlash > 0) e.hitFlash--;
       if (e.spawnAnim < 1) e.spawnAnim = Math.min(1, e.spawnAnim + 0.05);
       
@@ -434,23 +438,47 @@ export function updateGame(s: GameState, callbacks: GameCallbacks) {
     // Cleanup Logic
     for (let i = s.enemies.length - 1; i >= 0; i--) { const e = s.enemies[i]; if (e.dead || !e.active) { s.pools.enemies.release(e); s.enemies.splice(i, 1); } }
     for(let i=s.pickups.length-1; i>=0; i--) { const pick = s.pickups[i]; const dist = Utils.dist(pick.x, pick.y, p.x, p.y); if (dist < 150) { pick.x += (p.x - pick.x) * 0.05; pick.y += (p.y - pick.y) * 0.05; } if (dist < 30) { if(pick.type === 'heal') { p.hp = Math.min(p.maxHp, p.hp + CONFIG.PICKUPS.HEAL_AMOUNT); createFloatingText(s, p.x, p.y, `+${CONFIG.PICKUPS.HEAL_AMOUNT} HP`, '#00ff00', 20); callbacks.playSound('pickup'); } s.pools.pickups.release(pick); s.pickups.splice(i, 1); } else { pick.life--; if(pick.life <= 0) { s.pools.pickups.release(pick); s.pickups.splice(i, 1); } } }
-    for (let bi = s.bullets.length - 1; bi >= 0; bi--) { const b = s.bullets[bi]; if (!b.active) continue; if (b.homing > 0 && s.quality !== 'LOW') { let target = null, minD = 400; const nearby = s.spatialGrid.queryRadius(b.x, b.y, 400); for (const e of nearby) { if (e.type === 'projectile' || !e.active) continue; const d = Utils.dist(b.x, b.y, e.x, e.y); if (d < minD) { minD = d; target = e; } } if (target) { const wantAng = Math.atan2(target.y - b.y, target.x - b.x); const currAng = Math.atan2(b.vy, b.vx); const diff = Utils.angleDiff(currAng, wantAng); const newAng = currAng + diff * b.homing; const spd = Math.hypot(b.vx, b.vy); b.vx = Math.cos(newAng) * spd; b.vy = Math.sin(newAng) * spd; } } b.x += b.vx * s.timeScale; b.y += b.vy * s.timeScale; b.life--; if (b.life <= 0 || !Utils.inBounds(b.x, b.y, s.width, s.height, 50)) { s.pools.bullets.release(b); s.bullets.splice(bi, 1); continue; } const candidates = s.spatialGrid.queryRadius(b.x, b.y, 50); let hitEnemy = false; for (const e of candidates) { if (e.type === 'projectile' || e.dead || !e.active) continue; if (Utils.dist(b.x, b.y, e.x, e.y) < e.size + b.size) { e.hp -= b.dmg; e.hitFlash = 3; createExplosion(s, b.x, b.y, b.color, 3, 0.5); createFloatingText(s, e.x, e.y - 20, Math.floor(b.dmg).toString(), b.color, 14); if (b.pierce <= 0) hitEnemy = true; else b.pierce--; if (e.hp <= 0 && !e.dead) { e.dead = true; s.waveKills++; s.combo++; s.comboTimer = CONFIG.PROGRESSION.COMBO_DURATION; s.overdrive = Math.min(100, s.overdrive + (e.isElite ? 15 : 4)); const comboBonus = 1 + s.combo * CONFIG.PROGRESSION.COMBO_BONUS; s.score += e.score * comboBonus; createGem(s, e.x, e.y, e.xp); callbacks.playSound('explosion'); createExplosion(s, e.x, e.y, e.color, e.isElite ? 25 : 15, e.isElite ? 2 : 1.2); if (s.visualGrid) s.visualGrid.applyForce(e.x, e.y, e.size * 3, 25); if (e.affixes.includes('SPLITTER')) { const count = CONFIG.AFFIXES.SPLITTER.count; for(let k=0; k<count; k++) { const m = s.pools.enemies.acquire(); if (m) { const a = (Math.PI*2/count)*k; m.id = Utils.uid('split'); m.x = e.x; m.y = e.y; m.vx = Math.cos(a)*4; m.vy = Math.sin(a)*4; m.hp = e.maxHp * 0.3; m.maxHp = m.hp; m.type = 'chaser'; m.speed = e.speed * 1.5; m.size = e.size * 0.6; m.color = CONFIG.AFFIXES.SPLITTER.color; m.active = true; m.dead = false; s.enemies.push(m); } } } if (e.isElite && Math.random() < 0.6) { createPickup(s, e.x, e.y); } if (e.type === 'boss') { s.bossActive = false; s.wave++; s.waveKills = 0; s.waveQuota = Math.ceil(s.waveQuota * CONFIG.SPAWNING.QUOTA_MULTIPLIER); s.spawnTimer = 0; s.timeScale = 0.2; createFloatingText(s, e.x, e.y - 60, 'VICTORY', '#ffff00', 40); } } if (hitEnemy) break; } } if (hitEnemy) { s.pools.bullets.release(b); s.bullets.splice(bi, 1); } }
+    
+    // Bullet Update Loop
+    for (let bi = s.bullets.length - 1; bi >= 0; bi--) { 
+        const b = s.bullets[bi]; if (!b.active) continue;
+        
+        // Bullets drag the ether
+        s.visualGrid.addVelocity(b.x, b.y, b.vx * 0.3, b.vy * 0.3);
+        
+        if (b.homing > 0 && s.quality !== 'LOW') { let target = null, minD = 400; const nearby = s.spatialGrid.queryRadius(b.x, b.y, 400); for (const e of nearby) { if (e.type === 'projectile' || !e.active) continue; const d = Utils.dist(b.x, b.y, e.x, e.y); if (d < minD) { minD = d; target = e; } } if (target) { const wantAng = Math.atan2(target.y - b.y, target.x - b.x); const currAng = Math.atan2(b.vy, b.vx); const diff = Utils.angleDiff(currAng, wantAng); const newAng = currAng + diff * b.homing; const spd = Math.hypot(b.vx, b.vy); b.vx = Math.cos(newAng) * spd; b.vy = Math.sin(newAng) * spd; } } 
+        b.x += b.vx * s.timeScale; b.y += b.vy * s.timeScale; b.life--; if (b.life <= 0 || !Utils.inBounds(b.x, b.y, s.width, s.height, 50)) { s.pools.bullets.release(b); s.bullets.splice(bi, 1); continue; } 
+        const candidates = s.spatialGrid.queryRadius(b.x, b.y, 50); let hitEnemy = false; 
+        for (const e of candidates) { 
+            if (e.type === 'projectile' || e.dead || !e.active) continue; 
+            if (Utils.dist(b.x, b.y, e.x, e.y) < e.size + b.size) { 
+                e.hp -= b.dmg; e.hitFlash = 3; createExplosion(s, b.x, b.y, b.color, 3, 0.5); createFloatingText(s, e.x, e.y - 20, Math.floor(b.dmg).toString(), b.color, 14); 
+                if (b.pierce <= 0) hitEnemy = true; else b.pierce--; 
+                if (e.hp <= 0 && !e.dead) { 
+                    e.dead = true; s.waveKills++; s.combo++; s.comboTimer = CONFIG.PROGRESSION.COMBO_DURATION; s.overdrive = Math.min(100, s.overdrive + (e.isElite ? 15 : 4)); 
+                    const comboBonus = 1 + s.combo * CONFIG.PROGRESSION.COMBO_BONUS; s.score += e.score * comboBonus; createGem(s, e.x, e.y, e.xp); callbacks.playSound('explosion'); 
+                    createExplosion(s, e.x, e.y, e.color, e.isElite ? 25 : 15, e.isElite ? 2 : 1.2); 
+                    // Explosion interacts with Ether
+                    if (s.visualGrid) s.visualGrid.applyForce(e.x, e.y, e.size * 4, 30);
+                    
+                    if (e.affixes.includes('SPLITTER')) { const count = CONFIG.AFFIXES.SPLITTER.count; for(let k=0; k<count; k++) { const m = s.pools.enemies.acquire(); if (m) { const a = (Math.PI*2/count)*k; m.id = Utils.uid('split'); m.x = e.x; m.y = e.y; m.vx = Math.cos(a)*4; m.vy = Math.sin(a)*4; m.hp = e.maxHp * 0.3; m.maxHp = m.hp; m.type = 'chaser'; m.speed = e.speed * 1.5; m.size = e.size * 0.6; m.color = CONFIG.AFFIXES.SPLITTER.color; m.active = true; m.dead = false; s.enemies.push(m); } } } 
+                    if (e.isElite && Math.random() < 0.6) { createPickup(s, e.x, e.y); } 
+                    if (e.type === 'boss') { s.bossActive = false; s.wave++; s.waveKills = 0; s.waveQuota = Math.ceil(s.waveQuota * CONFIG.SPAWNING.QUOTA_MULTIPLIER); s.spawnTimer = 0; s.timeScale = 0.2; createFloatingText(s, e.x, e.y - 60, 'VICTORY', '#ffff00', 40); } 
+                } 
+                if (hitEnemy) break; 
+            } 
+        } 
+        if (hitEnemy) { s.pools.bullets.release(b); s.bullets.splice(bi, 1); } 
+    }
+    
+    // ... [Rest of update loops unchanged] ...
     for (let i = s.gems.length - 1; i >= 0; i--) { const g = s.gems[i]; if (!g.active) continue; const d = Utils.dist(g.x, g.y, p.x, p.y); if (d < p.stats.magnetRange) { g.vx += (p.x - g.x) * CONFIG.GEMS.PULL_STRENGTH; g.vy += (p.y - g.y) * CONFIG.GEMS.PULL_STRENGTH; } g.x += g.vx; g.y += g.vy; g.vx *= CONFIG.GEMS.FRICTION; g.vy *= CONFIG.GEMS.FRICTION; g.life--; if (d < CONFIG.GEMS.COLLECT_RADIUS) { p.xp += g.val; if (p.xp >= p.xpToNext) { p.xp -= p.xpToNext; p.level++; p.xpToNext = Math.floor(p.xpToNext * CONFIG.PROGRESSION.XP_SCALE); s.paused = true; callbacks.playSound('levelup'); const pool: UpgradeOption[] = []; UPGRADES.forEach(u => { const current = s.upgradeStacks.get(u.id) || 0; if (current < u.maxStack) { const weight = Math.max(0.1, u.weight - current * 0.1); for (let k = 0; k < weight * 10; k++) pool.push({ ...u, currentStack: current }); } }); const options: UpgradeOption[] = []; if (pool.length > 0) { while (options.length < 3 && pool.length > 0) { const idx = Math.floor(Math.random() * pool.length); const pick = pool[idx]; if (!options.find(o => o.id === pick.id)) options.push(pick); for (let z = pool.length - 1; z >= 0; z--) if (pool[z].id === pick.id) pool.splice(z, 1); } callbacks.onLevelUp(options); } else { s.paused = false; } } s.pools.gems.release(g); s.gems.splice(i, 1); } else if (g.life <= 0) { s.pools.gems.release(g); s.gems.splice(i, 1); } }
     for (let i = s.particles.length - 1; i >= 0; i--) { const part = s.particles[i]; if (!part.active) continue; part.x += part.vx * s.timeScale; part.y += part.vy * s.timeScale; part.vx *= part.friction; part.vy *= part.friction; part.life -= s.timeScale; if (part.type === 'shard') { part.rotation += part.rotationSpeed * s.timeScale; part.rotationSpeed *= 0.98; } if (part.life <= 0) { s.pools.particles.release(part); s.particles.splice(i, 1); } }
     for (let i = s.shockwaves.length - 1; i >= 0; i--) { const sw = s.shockwaves[i]; sw.size += sw.speed * s.timeScale; sw.alpha -= 0.03 * s.timeScale; if (sw.alpha <= 0) s.shockwaves.splice(i, 1); }
     for (const o of s.orbitals) { o.angle += 0.05; const ox = p.x + Math.cos(o.angle) * o.dist; const oy = p.y + Math.sin(o.angle) * o.dist; for (const e of s.enemies) { if (e.type === 'projectile' || e.dead || !e.active) continue; if (Utils.dist(ox, oy, e.x, e.y) < e.size + 10) { e.hp -= 2; e.hitFlash = 2; createExplosion(s, e.x, e.y, '#00ffff', 1, 0.5); } } }
+    for (let i = s.texts.length - 1; i >= 0; i--) { const t = s.texts[i]; t.x += t.vx * s.timeScale; t.y += t.vy * s.timeScale; t.vy += 0.1 * s.timeScale; t.life -= s.timeScale; if (t.life <= 0) s.texts.splice(i, 1); }
     
-    // Physics Text Update
-    for (let i = s.texts.length - 1; i >= 0; i--) { 
-        const t = s.texts[i]; 
-        t.x += t.vx * s.timeScale;
-        t.y += t.vy * s.timeScale;
-        t.vy += 0.1 * s.timeScale; // Gravity
-        t.life -= s.timeScale; 
-        if (t.life <= 0) s.texts.splice(i, 1); 
-    }
-
-    // SPAWNING SYSTEM (RESTORED)
+    // ... [Spawn logic remains the same] ...
     if (!s.bossActive) {
         const waveComplete = s.waveKills >= s.waveQuota;
         if (waveComplete) {

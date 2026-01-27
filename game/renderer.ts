@@ -2,6 +2,29 @@ import { CONFIG } from '../constants';
 import { GameState } from '../types';
 import { Utils } from '../utils';
 
+// Helper for Procedural Lightning
+const drawLightning = (ctx: CanvasRenderingContext2D, x1: number, y1: number, x2: number, y2: number, color: string, width: number, displace: number) => {
+    if (displace < 2) {
+        ctx.lineWidth = width;
+        ctx.strokeStyle = color;
+        ctx.beginPath();
+        ctx.moveTo(x1, y1);
+        ctx.lineTo(x2, y2);
+        ctx.stroke();
+    } else {
+        const midX = (x1 + x2) / 2;
+        const midY = (y1 + y2) / 2;
+        const normalX = -(y2 - y1);
+        const normalY = (x2 - x1);
+        const len = Math.sqrt(normalX * normalX + normalY * normalY);
+        const offsetX = (normalX / len) * (Math.random() - 0.5) * displace;
+        const offsetY = (normalY / len) * (Math.random() - 0.5) * displace;
+        
+        drawLightning(ctx, x1, y1, midX + offsetX, midY + offsetY, color, width, displace / 2);
+        drawLightning(ctx, midX + offsetX, midY + offsetY, x2, y2, color, width, displace / 2);
+    }
+};
+
 export const renderGame = (ctx: CanvasRenderingContext2D, s: GameState) => {
     // 1. ABERRATION OFFSET CALCULATION
     let abX = 0, abY = 0;
@@ -11,18 +34,18 @@ export const renderGame = (ctx: CanvasRenderingContext2D, s: GameState) => {
         abY = Math.random() * 6 * trauma;
     }
 
-    // --- PASS 1: BACKGROUND ---
+    // --- PASS 1: BACKGROUND (Darkness + Ether) ---
     ctx.fillStyle = '#050510';
     ctx.fillRect(0, 0, s.width, s.height);
 
     ctx.save();
     
-    // Global Shake + Trauma
+    // Global Shake
     if (s.shake > 0.5) {
         ctx.translate(Utils.rand(-s.shake, s.shake), Utils.rand(-s.shake, s.shake));
     }
 
-    // Background Elements
+    // Stars (Far Background)
     ctx.fillStyle = '#ffffff';
     for(let i=0; i<50; i++) {
         const x = (i * 137 + s.player.x * 0.1) % s.width;
@@ -34,12 +57,8 @@ export const renderGame = (ctx: CanvasRenderingContext2D, s: GameState) => {
     }
     ctx.globalAlpha = 1;
 
-    // Grid 
-    const playerSpeed = Math.hypot(s.player.vx, s.player.vy);
-    const speedRatio = Math.min(1, playerSpeed / CONFIG.PLAYER.BASE_SPEED / 2);
-    ctx.lineWidth = 1;
-    ctx.strokeStyle = '#1a1a2e';
-    ctx.globalAlpha = speedRatio > 0.1 ? 0.3 + (speedRatio * 0.2) : 0.3;
+    // RENDER ETHER FIELD (The Dust)
+    // This replaces the old grid lines with a particle-based fluid visualization
     if (s.visualGrid) s.visualGrid.render(ctx, s.qualitySettings.gridStep);
     
     // --- PASS 2: MAIN ENTITIES ---
@@ -132,38 +151,18 @@ export const renderGame = (ctx: CanvasRenderingContext2D, s: GameState) => {
     }
     drawEntities(0, 0, 'main');
 
-    // --- PASS 3: OVERLAYS (No aberration) ---
-
-    // Radial Health Bars (Enemies)
+    // --- PASS 3: OVERLAYS ---
     ctx.globalAlpha = 1;
+    // Radial Health Bars
     for (const e of s.enemies) {
         if (!e.active || e.dead || e.type === 'projectile') continue;
         if (e.hp < e.maxHp) {
             const hpPct = e.hp / e.maxHp;
             const radius = e.size + 8;
-            ctx.beginPath();
-            ctx.arc(e.x, e.y, radius, -Math.PI/2, -Math.PI/2 + (Math.PI * 2 * hpPct));
-            ctx.strokeStyle = hpPct > 0.5 ? '#10b981' : '#ef4444';
-            ctx.lineWidth = 2;
-            ctx.stroke();
-            
-            // Back ring
-            ctx.beginPath();
-            ctx.arc(e.x, e.y, radius, 0, Math.PI * 2);
-            ctx.strokeStyle = 'rgba(255,255,255,0.1)';
-            ctx.lineWidth = 1;
-            ctx.stroke();
-        }
-        // Affix Icons
-        if (e.isElite && e.affixes.length > 0) {
-            e.affixes.forEach((affix, idx) => {
-                const iconSize = 4;
-                const angle = -Math.PI/2 + (idx * 0.5);
-                const rx = e.x + Math.cos(angle) * (e.size + 14);
-                const ry = e.y + Math.sin(angle) * (e.size + 14);
-                ctx.fillStyle = CONFIG.AFFIXES[affix]?.color || '#fff';
-                ctx.beginPath(); ctx.arc(rx, ry, iconSize, 0, Math.PI * 2); ctx.fill();
-            });
+            ctx.beginPath(); ctx.arc(e.x, e.y, radius, -Math.PI/2, -Math.PI/2 + (Math.PI * 2 * hpPct));
+            ctx.strokeStyle = hpPct > 0.5 ? '#10b981' : '#ef4444'; ctx.lineWidth = 2; ctx.stroke();
+            ctx.beginPath(); ctx.arc(e.x, e.y, radius, 0, Math.PI * 2);
+            ctx.strokeStyle = 'rgba(255,255,255,0.1)'; ctx.lineWidth = 1; ctx.stroke();
         }
     }
 
@@ -200,11 +199,28 @@ export const renderGame = (ctx: CanvasRenderingContext2D, s: GameState) => {
     }
 
     // Bullets & Projectiles
+    const isRailgun = s.player.weapon === 'RAILGUN';
+    
     for (const b of s.bullets) {
         if (!b.active) continue;
-        ctx.fillStyle = '#ffffff'; ctx.globalAlpha = 1; ctx.beginPath(); ctx.arc(b.x, b.y, b.size * 0.6, 0, Math.PI * 2); ctx.fill();
-        ctx.fillStyle = b.color; ctx.globalAlpha = 0.6; ctx.beginPath(); ctx.arc(b.x, b.y, b.size * 1.5, 0, Math.PI * 2); ctx.fill();
+        
+        // PROCEDURAL RAILGUN LIGHTNING
+        if (isRailgun) {
+            const tailLen = 30;
+            const angle = Math.atan2(b.vy, b.vx);
+            const x2 = b.x - Math.cos(angle) * tailLen;
+            const y2 = b.y - Math.sin(angle) * tailLen;
+            ctx.globalAlpha = 1;
+            drawLightning(ctx, x2, y2, b.x, b.y, b.color, 2, 8);
+            ctx.globalAlpha = 0.5;
+            drawLightning(ctx, x2, y2, b.x, b.y, '#ffffff', 1, 8);
+        } else {
+            // Standard Bullet
+            ctx.fillStyle = '#ffffff'; ctx.globalAlpha = 1; ctx.beginPath(); ctx.arc(b.x, b.y, b.size * 0.6, 0, Math.PI * 2); ctx.fill();
+            ctx.fillStyle = b.color; ctx.globalAlpha = 0.6; ctx.beginPath(); ctx.arc(b.x, b.y, b.size * 1.5, 0, Math.PI * 2); ctx.fill();
+        }
     }
+    
     for (const e of s.enemies) {
         if (!e.active || e.type !== 'projectile') continue;
         ctx.fillStyle = '#ffffff'; ctx.globalAlpha = 1; ctx.beginPath(); ctx.arc(e.x, e.y, e.size * 0.5, 0, Math.PI * 2); ctx.fill();
