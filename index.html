@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>Neon God: Ascension</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          fontFamily: {
+            mono: ['"Courier New"', 'Consolas', 'monospace'],
+          },
+          colors: {
+            neon: {
+              blue: '#00f3ff',
+              pink: '#ff0055',
+              purple: '#be9cff',
+              green: '#00ffaa',
+              yellow: '#ffe600',
+            },
+            dark: {
+              bg: '#050510',
+              panel: '#0a0a1a',
+            }
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    body {
+      touch-action: none;
+      user-select: none;
+      -webkit-user-select: none;
+      background-color: #050510;
+      overflow: hidden;
+    }
+    @keyframes pulse-fast {
+      0%, 100% { opacity: 1; transform: translateX(-50%) scale(1); }
+      50% { opacity: 0.8; transform: translateX(-50%) scale(1.05); }
+    }
+    .animate-pulse-fast {
+      animation: pulse-fast 0.8s infinite;
+    }
+  </style>
+<script type="importmap">
+{
+  "imports": {
+    "react-dom/": "https://esm.sh/react-dom@^19.2.3/",
+    "react/": "https://esm.sh/react@^19.2.3/",
+    "react": "https://esm.sh/react@^19.2.3"
+  }
+}
+</script>
+</head>
+<body>
+  <div id="root"></div>
+</body>
+</html>
