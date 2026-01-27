@@ -19,6 +19,7 @@ export interface Player extends Entity {
   invuln: number;
   hitFlash: number;
   muzzleFlash: number; 
+  trail: { x: number; y: number; angle: number }[]; // Temporal Echo
   weapon: 'DEFAULT' | 'SHOTGUN' | 'RAILGUN' | 'VOID';
   stats: {
     multishot: number;
@@ -113,6 +114,15 @@ export interface Shockwave {
   width: number;
 }
 
+export interface Light {
+  x: number;
+  y: number;
+  radius: number;
+  color: string; // Hex or rgba
+  intensity: number;
+  flicker?: boolean;
+}
+
 export interface Orbital {
   angle: number;
   dist: number;
@@ -159,6 +169,7 @@ export interface GameState {
   pickups: Pickup[];
   texts: FloatingText[];
   shockwaves: Shockwave[];
+  lights: Light[]; // Dynamic Lighting
   orbitals: Orbital[];
   keys: { [key: string]: boolean; ArrowUp: boolean; ArrowDown: boolean; ArrowLeft: boolean; ArrowRight: boolean; space: boolean; shift: boolean; f: boolean };
   mouse: { x: number; y: number; down: boolean };

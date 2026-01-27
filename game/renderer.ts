@@ -1,5 +1,5 @@
 import { CONFIG } from '../constants';
-import { GameState } from '../types';
+import { GameState, Light } from '../types';
 import { Utils } from '../utils';
 
 // Helper for Procedural Lightning
@@ -29,14 +29,13 @@ const drawLightning = (ctx: CanvasRenderingContext2D, x1: number, y1: number, x2
 const drawHarmonicEntity = (ctx: CanvasRenderingContext2D, x: number, y: number, size: number, color: string, type: string, seed: number, time: number) => {
     let freqX = 1, freqY = 1, mod = 0;
 
-    // Define "Sacred Geometry" per enemy type
     switch (type) {
-        case 'chaser': freqX = 3; freqY = 2; break; // Knot
-        case 'kamikaze': freqX = 5; freqY = 4; break; // Complex Knot
-        case 'tank': freqX = 1; freqY = 1; mod = Math.PI/4; break; // Rotated Oval
-        case 'shooter': freqX = 3; freqY = 1; break; // Horizontal 3-loop
-        case 'turret': freqX = 4; freqY = 4; break; // Diamond-ish
-        case 'boss': freqX = 2.01; freqY = 3.01; break; // Evolving chaotic curve
+        case 'chaser': freqX = 3; freqY = 2; break;
+        case 'kamikaze': freqX = 5; freqY = 4; break;
+        case 'tank': freqX = 1; freqY = 1; mod = Math.PI/4; break;
+        case 'shooter': freqX = 3; freqY = 1; break;
+        case 'turret': freqX = 4; freqY = 4; break;
+        case 'boss': freqX = 2.01; freqY = 3.01; break;
         default: freqX = 2; freqY = 3;
     }
 
@@ -44,14 +43,11 @@ const drawHarmonicEntity = (ctx: CanvasRenderingContext2D, x: number, y: number,
     ctx.lineWidth = 2;
     ctx.beginPath();
 
-    const phase = time * 0.1 + seed; // Animation phase
+    const phase = time * 0.1 + seed;
     const steps = 50;
 
     for (let i = 0; i <= steps; i++) {
         const t = (i / steps) * Math.PI * 2;
-
-        // Lissajous Parametric Equations
-        // Add a secondary sine wave for "jitter" or complexity
         const rawX = Math.sin(freqX * t + phase + mod);
         const rawY = Math.cos(freqY * t + phase);
 
@@ -65,15 +61,65 @@ const drawHarmonicEntity = (ctx: CanvasRenderingContext2D, x: number, y: number,
     ctx.closePath();
     ctx.stroke();
 
-    // Inner Core (Faint fill)
     ctx.fillStyle = color;
     ctx.globalAlpha = 0.1;
     ctx.fill();
     ctx.globalAlpha = 1.0;
 };
 
+// --- DYNAMIC LIGHTING SYSTEM ---
+const renderLighting = (ctx: CanvasRenderingContext2D, s: GameState) => {
+    // 1. Accumulate Lights
+    const lights: Light[] = [];
+
+    // Player "Headlight"
+    lights.push({ x: s.player.x, y: s.player.y, radius: 300, color: '#00f3ff', intensity: 0.4 });
+    // Player Thrusters
+    const backAngle = s.player.angle + Math.PI;
+    lights.push({ x: s.player.x + Math.cos(backAngle) * 30, y: s.player.y + Math.sin(backAngle) * 30, radius: 100, color: '#00ffff', intensity: 0.6, flicker: true });
+
+    // Bullets
+    for (const b of s.bullets) {
+        if (!b.active) continue;
+        lights.push({ x: b.x, y: b.y, radius: b.size * 20, color: b.color, intensity: 0.8 });
+    }
+
+    // Enemies (Glow)
+    for (const e of s.enemies) {
+        if (!e.active || e.dead) continue;
+        lights.push({ x: e.x, y: e.y, radius: e.size * 3, color: e.color, intensity: 0.5 });
+    }
+
+    // Explosions & Particles (Glows only)
+    for (const p of s.particles) {
+        if (p.active && p.type === 'glow') {
+            lights.push({ x: p.x, y: p.y, radius: p.size * 4, color: p.color, intensity: p.life / p.maxLife });
+        }
+    }
+
+    // 2. Render Light Map
+    ctx.globalCompositeOperation = 'screen';
+
+    for (const l of lights) {
+        const flicker = l.flicker ? (0.8 + Math.random() * 0.4) : 1.0;
+        const rad = l.radius * flicker;
+
+        const grad = ctx.createRadialGradient(l.x, l.y, 0, l.x, l.y, rad);
+        grad.addColorStop(0, l.color); // We rely on globalAlpha for intensity, but better to parse color or use simple additive
+        grad.addColorStop(1, '#000000');
+
+        ctx.globalAlpha = l.intensity * 0.4; // Base intensity scaling
+        ctx.fillStyle = grad;
+        ctx.beginPath();
+        ctx.arc(l.x, l.y, rad, 0, Math.PI * 2);
+        ctx.fill();
+    }
+
+    ctx.globalAlpha = 1.0;
+    ctx.globalCompositeOperation = 'source-over';
+};
+
 export const renderGame = (ctx: CanvasRenderingContext2D, s: GameState) => {
-    // 1. ABERRATION OFFSET CALCULATION
     let abX = 0, abY = 0;
     const trauma = Math.max(s.screenFlash, s.player.hitFlash > 0 ? 0.5 : 0);
     if (trauma > 0) {
@@ -81,18 +127,16 @@ export const renderGame = (ctx: CanvasRenderingContext2D, s: GameState) => {
         abY = Math.random() * 6 * trauma;
     }
 
-    // --- PASS 1: BACKGROUND (Darkness + Ether) ---
+    // --- PASS 1: BACKGROUND ---
     ctx.fillStyle = '#050510';
     ctx.fillRect(0, 0, s.width, s.height);
 
     ctx.save();
     
-    // Global Shake
     if (s.shake > 0.5) {
         ctx.translate(Utils.rand(-s.shake, s.shake), Utils.rand(-s.shake, s.shake));
     }
 
-    // Stars (Far Background)
     ctx.fillStyle = '#ffffff';
     for(let i=0; i<50; i++) {
         const x = (i * 137 + s.player.x * 0.1) % s.width;
@@ -104,13 +148,15 @@ export const renderGame = (ctx: CanvasRenderingContext2D, s: GameState) => {
     }
     ctx.globalAlpha = 1;
 
-    // RENDER ETHER FIELD (The Dust)
+    // --- PASS 2: FLUID & LIGHTING ---
     if (s.visualGrid) s.visualGrid.render(ctx, s.qualitySettings.gridStep);
     
-    // --- PASS 2: MAIN ENTITIES ---
+    // Apply Volumetric Lighting
+    renderLighting(ctx, s);
+
+    // --- PASS 3: ENTITIES ---
     const blur = s.qualitySettings.shadowBlur; 
 
-    // Helper to draw entities with potential chromatic aberration
     const drawEntities = (offsetX: number, offsetY: number, channel: 'main' | 'red' | 'blue') => {
         if (channel === 'red') { ctx.globalCompositeOperation = 'screen'; ctx.fillStyle = '#ff0000'; ctx.strokeStyle = '#ff0000'; ctx.globalAlpha = 0.5; }
         else if (channel === 'blue') { ctx.globalCompositeOperation = 'screen'; ctx.fillStyle = '#0000ff'; ctx.strokeStyle = '#0000ff'; ctx.globalAlpha = 0.5; }
@@ -126,40 +172,51 @@ export const renderGame = (ctx: CanvasRenderingContext2D, s: GameState) => {
             ctx.fill(); ctx.restore();
         }
 
-        // Enemies (Now drawn as Harmonic Entities)
+        // Enemies
         for (const e of s.enemies) {
             if (!e.active || e.dead || e.type === 'projectile') continue;
 
-            ctx.save();
-            ctx.translate(offsetX, offsetY);
+            ctx.save(); ctx.translate(offsetX, offsetY);
 
             if (channel === 'main') {
                 ctx.shadowBlur = e.isElite ? (blur > 0 ? 25 : 0) : (blur > 0 ? 12 : 0);
                 ctx.shadowColor = e.color; 
-                if (e.hitFlash > 0) ctx.strokeStyle = '#ffffff'; // Override color for flash
+                if (e.hitFlash > 0) ctx.strokeStyle = '#ffffff';
             }
 
             let drawSize = e.size;
-            if (e.spawnAnim < 1) {
-                ctx.globalAlpha = e.spawnAnim;
-                drawSize *= (2 - e.spawnAnim);
-            }
+            if (e.spawnAnim < 1) { ctx.globalAlpha = e.spawnAnim; drawSize *= (2 - e.spawnAnim); }
 
-            // Pseudo-random seed from ID hash or just index
-            // Since ID is string, we can't cast easily, but we can parse the number part if it exists
-            // Or simpler: use e.x + e.y as seed (changes if they warp, but fine for visuals)
-            // or better: e.score as a proxy for type-hash or random prop
             const seed = e.id.charCodeAt(e.id.length-1);
-
             drawHarmonicEntity(ctx, e.x, e.y, drawSize, e.hitFlash > 0 ? '#fff' : e.color, e.type, seed, s.frame);
 
             ctx.restore();
             ctx.shadowBlur = 0;
         }
 
-        // Player
+        // Player & Temporal Echo
         const p = s.player;
         if (!s.gameOver && p.invuln % 4 < 2) {
+            // Draw Temporal Echo (Ghosts)
+            if (channel === 'main' && p.trail) {
+                for (let i = 0; i < p.trail.length; i++) {
+                    const t = p.trail[i];
+                    const alpha = (i + 1) / (p.trail.length + 1) * 0.3;
+                    ctx.save();
+                    ctx.translate(t.x + offsetX, t.y + offsetY);
+                    ctx.rotate(t.angle);
+                    ctx.fillStyle = `rgba(0, 243, 255, ${alpha})`;
+                    ctx.strokeStyle = `rgba(0, 243, 255, ${alpha})`;
+
+                    // Simple Ghost Shape
+                    ctx.beginPath();
+                    ctx.moveTo(25, 0); ctx.lineTo(-10, 20); ctx.lineTo(-10, -20);
+                    ctx.stroke();
+
+                    ctx.restore();
+                }
+            }
+
             ctx.save(); ctx.translate(p.x + offsetX, p.y + offsetY); ctx.rotate(p.angle);
             
             if (channel === 'main') {
@@ -177,26 +234,46 @@ export const renderGame = (ctx: CanvasRenderingContext2D, s: GameState) => {
             if (channel === 'main') {
                 ctx.fillStyle = '#000';
                 ctx.beginPath(); ctx.moveTo(10, 0); ctx.lineTo(-5, 3); ctx.lineTo(-5, -3); ctx.fill();
+
+                // --- DIEGETIC UI ---
+                // 1. Health Shield Ring
+                const hpPct = p.hp / p.maxHp;
+                if (hpPct < 1) {
+                    ctx.strokeStyle = hpPct > 0.3 ? '#00ffaa' : '#ff0055';
+                    ctx.lineWidth = 2;
+                    ctx.globalAlpha = 0.6;
+                    ctx.beginPath();
+                    ctx.arc(0, 0, 35, -Math.PI/2, -Math.PI/2 + (Math.PI * 2 * hpPct));
+                    ctx.stroke();
+                }
+
+                // 2. Heat Vent (Reload)
+                if (p.cd > 0) {
+                    ctx.fillStyle = '#ff5500';
+                    ctx.globalAlpha = p.cd / 10; // Fades out
+                    ctx.beginPath();
+                    ctx.arc(-15, 0, 4, 0, Math.PI * 2);
+                    ctx.fill();
+                }
             }
             ctx.restore();
         }
     };
 
-    // Render Channels (Chromatic Aberration Effect)
     if (trauma > 0) {
         drawEntities(abX, abY, 'red');
         drawEntities(-abX, -abY, 'blue');
     }
     drawEntities(0, 0, 'main');
 
-    // --- PASS 3: OVERLAYS ---
+    // --- PASS 4: OVERLAYS ---
     ctx.globalAlpha = 1;
     // Radial Health Bars
     for (const e of s.enemies) {
         if (!e.active || e.dead || e.type === 'projectile') continue;
         if (e.hp < e.maxHp) {
             const hpPct = e.hp / e.maxHp;
-            const radius = e.size + 12; // Slightly larger for clarity
+            const radius = e.size + 12;
             ctx.beginPath(); ctx.arc(e.x, e.y, radius, -Math.PI/2, -Math.PI/2 + (Math.PI * 2 * hpPct));
             ctx.strokeStyle = hpPct > 0.5 ? '#10b981' : '#ef4444'; ctx.lineWidth = 2; ctx.stroke();
             ctx.beginPath(); ctx.arc(e.x, e.y, radius, 0, Math.PI * 2);
@@ -219,7 +296,7 @@ export const renderGame = (ctx: CanvasRenderingContext2D, s: GameState) => {
         ctx.fillRect(pick.x - sz/2, pick.y - sz/2, sz, sz);
     }
 
-    // --- PASS 4: GLOW / PARTICLES / BULLETS ---
+    // --- PASS 5: GLOW / PARTICLES / BULLETS ---
     ctx.globalCompositeOperation = 'lighter';
 
     // Particles (Glow + Ghost)
@@ -236,13 +313,10 @@ export const renderGame = (ctx: CanvasRenderingContext2D, s: GameState) => {
         }
     }
 
-    // Bullets & Projectiles
+    // Bullets
     const isRailgun = s.player.weapon === 'RAILGUN';
-    
     for (const b of s.bullets) {
         if (!b.active) continue;
-        
-        // PROCEDURAL RAILGUN LIGHTNING
         if (isRailgun) {
             const tailLen = 30;
             const angle = Math.atan2(b.vy, b.vx);
@@ -253,7 +327,6 @@ export const renderGame = (ctx: CanvasRenderingContext2D, s: GameState) => {
             ctx.globalAlpha = 0.5;
             drawLightning(ctx, x2, y2, b.x, b.y, '#ffffff', 1, 8);
         } else {
-            // Standard Bullet
             ctx.fillStyle = '#ffffff'; ctx.globalAlpha = 1; ctx.beginPath(); ctx.arc(b.x, b.y, b.size * 0.6, 0, Math.PI * 2); ctx.fill();
             ctx.fillStyle = b.color; ctx.globalAlpha = 0.6; ctx.beginPath(); ctx.arc(b.x, b.y, b.size * 1.5, 0, Math.PI * 2); ctx.fill();
         }
@@ -298,28 +371,33 @@ export const renderGame = (ctx: CanvasRenderingContext2D, s: GameState) => {
         ctx.beginPath(); ctx.arc(sw.x, sw.y, sw.size, 0, Math.PI * 2); ctx.stroke();
     }
 
-    // --- PASS 5: UI ---
+    // --- PASS 6: UI ---
     ctx.globalCompositeOperation = 'source-over';
     ctx.globalAlpha = 1;
 
-    // Tactical Reticle
+    // Tactical Reticle (DIEGETIC)
     if (!s.gameOver && !s.paused && s.active) {
         const cx = s.player.x + Math.cos(s.player.angle) * 150;
         const cy = s.player.y + Math.sin(s.player.angle) * 150;
         ctx.strokeStyle = s.autoMode ? '#00f3ff' : 'rgba(255, 255, 255, 0.4)';
         ctx.lineWidth = 2;
         
+        // Reticle spins and pulses
+        ctx.save();
+        ctx.translate(cx, cy);
         if (s.autoMode) {
-            ctx.save(); ctx.translate(cx, cy); ctx.rotate(s.frame * 0.05); ctx.beginPath(); ctx.rect(-10, -10, 20, 20); ctx.stroke(); ctx.restore();
+            ctx.rotate(s.frame * 0.05); ctx.beginPath(); ctx.rect(-10, -10, 20, 20); ctx.stroke();
         } else {
-            ctx.beginPath(); ctx.moveTo(cx - 10, cy); ctx.lineTo(cx + 10, cy); ctx.moveTo(cx, cy - 10); ctx.lineTo(cx, cy + 10); ctx.stroke();
+            ctx.beginPath(); ctx.moveTo(-10, 0); ctx.lineTo(10, 0); ctx.moveTo(0, -10); ctx.lineTo(0, 10); ctx.stroke();
         }
 
+        // Reload Ring around Reticle
         if (s.player.cd > 0) {
            const reloadPct = 1 - (s.player.cd / (20/s.player.stats.fireRateMod)); 
-           ctx.beginPath(); ctx.arc(s.player.x, s.player.y, 40, -Math.PI/2, -Math.PI/2 + (Math.PI * 2 * reloadPct));
-           ctx.strokeStyle = 'rgba(255, 255, 255, 0.2)'; ctx.stroke();
+           ctx.beginPath(); ctx.arc(0, 0, 15, -Math.PI/2, -Math.PI/2 + (Math.PI * 2 * reloadPct));
+           ctx.strokeStyle = 'rgba(255, 50, 0, 0.8)'; ctx.stroke();
         }
+        ctx.restore();
     }
 
     // Kinetic Floating Texts

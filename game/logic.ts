@@ -51,6 +51,7 @@ export function resetPlayer(player: Player, width: number, height: number) {
   player.xp = 0; player.level = 1; player.xpToNext = CONFIG.PROGRESSION.XP_BASE;
   player.angle = -Math.PI / 2; player.cd = 0; player.dashCd = 0; player.maxDashCd = CONFIG.PLAYER.DASH.COOLDOWN; player.invuln = 0;
   player.hitFlash = 0; player.muzzleFlash = 0;
+  player.trail = [];
   player.weapon = 'DEFAULT';
   player.stats = { multishot: 0, fireRateMod: 1, speedMod: 1, damageMod: 1, magnetRange: CONFIG.GEMS.MAGNET_RANGE, orbitals: 0, homing: 0, pierce: 0 };
 }
@@ -65,7 +66,7 @@ export function createGameState(width: number, height: number): GameState {
         startTime: 0, runDuration: 0,
         quality: 'HIGH', qualitySettings: CONFIG.QUALITY.TIERS.HIGH,
         player: {} as Player,
-        bullets: [], enemies: [], particles: [], gems: [], pickups: [], texts: [], shockwaves: [], orbitals: [],
+        bullets: [], enemies: [], particles: [], gems: [], pickups: [], texts: [], shockwaves: [], lights: [], orbitals: [],
         keys: { w: false, a: false, s: false, d: false, ArrowUp: false, ArrowDown: false, ArrowLeft: false, ArrowRight: false, space: false, shift: false, f: false },
         mouse: { x: width / 2, y: height / 2, down: false },
         touches: {},
@@ -293,6 +294,12 @@ export function updateGame(s: GameState, callbacks: GameCallbacks) {
     p.vx *= CONFIG.PLAYER.ACCELERATION; p.vy *= CONFIG.PLAYER.ACCELERATION;
     p.x = Utils.clamp(p.x + p.vx * s.timeScale, 0, s.width);
     p.y = Utils.clamp(p.y + p.vy * s.timeScale, 0, s.height);
+
+    // Record Trail (Temporal Echo)
+    if (s.frame % 3 === 0) {
+        p.trail.unshift({ x: p.x, y: p.y, angle: p.angle });
+        if (p.trail.length > 8) p.trail.pop();
+    }
 
     // INJECT PLAYER VELOCITY INTO FLUID
     if (Math.abs(p.vx) > 0.1 || Math.abs(p.vy) > 0.1) {
