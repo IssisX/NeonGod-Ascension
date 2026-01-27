@@ -25,6 +25,53 @@ const drawLightning = (ctx: CanvasRenderingContext2D, x1: number, y1: number, x2
     }
 };
 
+// Procedural Harmongraph / Lissajous Drawing
+const drawHarmonicEntity = (ctx: CanvasRenderingContext2D, x: number, y: number, size: number, color: string, type: string, seed: number, time: number) => {
+    let freqX = 1, freqY = 1, mod = 0;
+
+    // Define "Sacred Geometry" per enemy type
+    switch (type) {
+        case 'chaser': freqX = 3; freqY = 2; break; // Knot
+        case 'kamikaze': freqX = 5; freqY = 4; break; // Complex Knot
+        case 'tank': freqX = 1; freqY = 1; mod = Math.PI/4; break; // Rotated Oval
+        case 'shooter': freqX = 3; freqY = 1; break; // Horizontal 3-loop
+        case 'turret': freqX = 4; freqY = 4; break; // Diamond-ish
+        case 'boss': freqX = 2.01; freqY = 3.01; break; // Evolving chaotic curve
+        default: freqX = 2; freqY = 3;
+    }
+
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+
+    const phase = time * 0.1 + seed; // Animation phase
+    const steps = 50;
+
+    for (let i = 0; i <= steps; i++) {
+        const t = (i / steps) * Math.PI * 2;
+
+        // Lissajous Parametric Equations
+        // Add a secondary sine wave for "jitter" or complexity
+        const rawX = Math.sin(freqX * t + phase + mod);
+        const rawY = Math.cos(freqY * t + phase);
+
+        const px = x + rawX * size;
+        const py = y + rawY * size;
+
+        if (i === 0) ctx.moveTo(px, py);
+        else ctx.lineTo(px, py);
+    }
+
+    ctx.closePath();
+    ctx.stroke();
+
+    // Inner Core (Faint fill)
+    ctx.fillStyle = color;
+    ctx.globalAlpha = 0.1;
+    ctx.fill();
+    ctx.globalAlpha = 1.0;
+};
+
 export const renderGame = (ctx: CanvasRenderingContext2D, s: GameState) => {
     // 1. ABERRATION OFFSET CALCULATION
     let abX = 0, abY = 0;
@@ -58,7 +105,6 @@ export const renderGame = (ctx: CanvasRenderingContext2D, s: GameState) => {
     ctx.globalAlpha = 1;
 
     // RENDER ETHER FIELD (The Dust)
-    // This replaces the old grid lines with a particle-based fluid visualization
     if (s.visualGrid) s.visualGrid.render(ctx, s.qualitySettings.gridStep);
     
     // --- PASS 2: MAIN ENTITIES ---
@@ -80,43 +126,35 @@ export const renderGame = (ctx: CanvasRenderingContext2D, s: GameState) => {
             ctx.fill(); ctx.restore();
         }
 
-        // Enemies
+        // Enemies (Now drawn as Harmonic Entities)
         for (const e of s.enemies) {
             if (!e.active || e.dead || e.type === 'projectile') continue;
-            if (e.spawnAnim < 1) {
-                 if (channel === 'main') {
-                    ctx.save(); ctx.translate(e.x + offsetX, e.y + offsetY);
-                    ctx.strokeStyle = e.color; ctx.lineWidth = 2; ctx.globalAlpha = e.spawnAnim;
-                    ctx.beginPath();
-                    const scale = 2 - e.spawnAnim; 
-                    ctx.arc(0, 0, e.size * scale, 0, Math.PI * 2); ctx.stroke();
-                    ctx.beginPath(); ctx.moveTo(-e.size*scale, 0); ctx.lineTo(e.size*scale, 0); ctx.stroke();
-                    ctx.beginPath(); ctx.moveTo(0, -e.size*scale); ctx.lineTo(0, e.size*scale); ctx.stroke();
-                    ctx.restore();
-                 }
-                 continue;
-            }
+
+            ctx.save();
+            ctx.translate(offsetX, offsetY);
 
             if (channel === 'main') {
                 ctx.shadowBlur = e.isElite ? (blur > 0 ? 25 : 0) : (blur > 0 ? 12 : 0);
                 ctx.shadowColor = e.color; 
-                ctx.fillStyle = e.hitFlash > 0 ? '#ffffff' : e.color;
+                if (e.hitFlash > 0) ctx.strokeStyle = '#ffffff'; // Override color for flash
             }
 
-            ctx.save(); ctx.translate(e.x + offsetX, e.y + offsetY);
-            if (e.type === 'boss') {
-                ctx.rotate(s.frame * 0.015); ctx.beginPath();
-                for (let i = 0; i < 6; i++) {
-                    const th = (i * Math.PI) / 3;
-                    const px = Math.cos(th) * e.size, py = Math.sin(th) * e.size;
-                    if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
-                }
-                ctx.closePath(); ctx.fill();
-            } else { 
-                ctx.beginPath(); ctx.arc(0, 0, e.size, 0, Math.PI * 2); ctx.fill(); 
+            let drawSize = e.size;
+            if (e.spawnAnim < 1) {
+                ctx.globalAlpha = e.spawnAnim;
+                drawSize *= (2 - e.spawnAnim);
             }
+
+            // Pseudo-random seed from ID hash or just index
+            // Since ID is string, we can't cast easily, but we can parse the number part if it exists
+            // Or simpler: use e.x + e.y as seed (changes if they warp, but fine for visuals)
+            // or better: e.score as a proxy for type-hash or random prop
+            const seed = e.id.charCodeAt(e.id.length-1);
+
+            drawHarmonicEntity(ctx, e.x, e.y, drawSize, e.hitFlash > 0 ? '#fff' : e.color, e.type, seed, s.frame);
+
             ctx.restore();
-            ctx.shadowBlur = 0; // Reset for next draw
+            ctx.shadowBlur = 0;
         }
 
         // Player
@@ -158,7 +196,7 @@ export const renderGame = (ctx: CanvasRenderingContext2D, s: GameState) => {
         if (!e.active || e.dead || e.type === 'projectile') continue;
         if (e.hp < e.maxHp) {
             const hpPct = e.hp / e.maxHp;
-            const radius = e.size + 8;
+            const radius = e.size + 12; // Slightly larger for clarity
             ctx.beginPath(); ctx.arc(e.x, e.y, radius, -Math.PI/2, -Math.PI/2 + (Math.PI * 2 * hpPct));
             ctx.strokeStyle = hpPct > 0.5 ? '#10b981' : '#ef4444'; ctx.lineWidth = 2; ctx.stroke();
             ctx.beginPath(); ctx.arc(e.x, e.y, radius, 0, Math.PI * 2);
