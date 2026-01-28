@@ -19,6 +19,7 @@ export interface Player extends Entity {
   invuln: number;
   hitFlash: number;
   muzzleFlash: number; 
+  trail: { x: number; y: number; angle: number }[]; // Temporal Echo
   weapon: 'DEFAULT' | 'SHOTGUN' | 'RAILGUN' | 'VOID';
   stats: {
     multishot: number;
@@ -60,6 +61,9 @@ export interface Enemy extends Entity {
   shootTimer: number;
   attackTimer: number;
   phase: number;
+  // Boid / Fluid coupling
+  flockForceX: number;
+  flockForceY: number;
   dead: boolean;
   life: number;
   hitFlash: number;
@@ -76,6 +80,15 @@ export interface Particle extends Entity {
   type: 'glow' | 'shard' | 'ring' | 'text' | 'ghost'; 
   rotation: number;     
   rotationSpeed: number; 
+}
+
+export interface Shard extends Entity {
+  life: number;
+  maxLife: number;
+  color: string;
+  size: number;
+  rotation: number;
+  rotationSpeed: number;
 }
 
 export interface Gem extends Entity {
@@ -111,6 +124,15 @@ export interface Shockwave {
   speed: number;
   alpha: number;
   width: number;
+}
+
+export interface Light {
+  x: number;
+  y: number;
+  radius: number;
+  color: string; // Hex or rgba
+  intensity: number;
+  flicker?: boolean;
 }
 
 export interface Orbital {
@@ -155,10 +177,12 @@ export interface GameState {
   bullets: Bullet[];
   enemies: Enemy[];
   particles: Particle[];
+  shards: Shard[]; // Persistent debris
   gems: Gem[];
   pickups: Pickup[];
   texts: FloatingText[];
   shockwaves: Shockwave[];
+  lights: Light[]; // Dynamic Lighting
   orbitals: Orbital[];
   keys: { [key: string]: boolean; ArrowUp: boolean; ArrowDown: boolean; ArrowLeft: boolean; ArrowRight: boolean; space: boolean; shift: boolean; f: boolean };
   mouse: { x: number; y: number; down: boolean };
@@ -171,6 +195,7 @@ export interface GameState {
     bullets: any;
     enemies: any;
     particles: any;
+    shards: any;
     gems: any;
     pickups: any;
   };

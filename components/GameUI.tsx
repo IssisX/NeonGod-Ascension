@@ -155,7 +155,14 @@ export const GameUI: React.FC<GameUIProps> = ({ ui, onStart, onUpgradeSelect, on
                 <span>HP</span>
                 <span>{Math.ceil(ui.hp)}/{ui.maxHp}</span>
             </div>
-            <div className="h-3 bg-gray-900 border border-white/10 rounded overflow-hidden mb-3">
+            <div
+                className="h-3 bg-gray-900 border border-white/10 rounded overflow-hidden mb-3"
+                role="progressbar"
+                aria-label="Player Health"
+                aria-valuenow={Math.ceil(ui.hp)}
+                aria-valuemin={0}
+                aria-valuemax={ui.maxHp}
+            >
                 <div 
                     className={`h-full transition-all duration-300 ${ui.hp < ui.maxHp * 0.25 ? 'bg-red-600 animate-pulse' : 'bg-emerald-500'}`}
                     style={{ width: `${(ui.hp / ui.maxHp) * 100}%` }}
@@ -167,7 +174,14 @@ export const GameUI: React.FC<GameUIProps> = ({ ui, onStart, onUpgradeSelect, on
                 <span>LVL {ui.level}</span>
                 <span>{Math.floor((ui.xp / ui.xpToNext) * 100)}%</span>
             </div>
-            <div className="h-2 bg-gray-900 border border-white/10 rounded overflow-hidden">
+            <div
+                className="h-2 bg-gray-900 border border-white/10 rounded overflow-hidden"
+                role="progressbar"
+                aria-label="Experience Progress"
+                aria-valuenow={ui.xp}
+                aria-valuemin={0}
+                aria-valuemax={ui.xpToNext}
+            >
                 <div 
                     className="h-full bg-emerald-500 transition-all duration-200"
                     style={{ width: `${(ui.xp / ui.xpToNext) * 100}%` }}
@@ -196,7 +210,14 @@ export const GameUI: React.FC<GameUIProps> = ({ ui, onStart, onUpgradeSelect, on
                     PRESS [F] - NEON NOVA
                 </div>
             )}
-            <div className={`w-72 h-4 bg-gray-950 rounded-full overflow-hidden border-2 ${ui.overdrive >= 100 ? 'border-fuchsia-500 shadow-[0_0_15px_#d946ef]' : 'border-white/10'}`}>
+            <div
+                className={`w-72 h-4 bg-gray-950 rounded-full overflow-hidden border-2 ${ui.overdrive >= 100 ? 'border-fuchsia-500 shadow-[0_0_15px_#d946ef]' : 'border-white/10'}`}
+                role="progressbar"
+                aria-label="Overdrive Charge"
+                aria-valuenow={Math.min(100, ui.overdrive)}
+                aria-valuemin={0}
+                aria-valuemax={100}
+            >
                 <div 
                     className={`h-full transition-all duration-200 ${ui.overdrive >= 100 ? 'bg-fuchsia-500' : 'bg-gradient-to-r from-purple-900 to-purple-600'}`}
                     style={{ width: `${ui.overdrive}%` }}

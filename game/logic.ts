@@ -1,17 +1,18 @@
 import { CONFIG, UPGRADES } from '../constants';
-import { GameState, Player, UpgradeOption, RunData, Enemy, Bullet, Particle, Gem, SoundType, Pickup, EnemyAffix } from '../types';
+import { GameState, Player, UpgradeOption, RunData, Enemy, Bullet, Particle, Shard, Gem, SoundType, Pickup, EnemyAffix } from '../types';
 import { Utils } from '../utils';
 import { SpatialGrid, VisualGrid } from './grids';
 
 // --- POOLS & FACTORIES ---
-// (Factories remain the same, simplified for brevity in this update)
 export const Factories = {
   bullet: () => ({ id: '', x: 0, y: 0, vx: 0, vy: 0, life: 0, color: '', dmg: 0, pierce: 0, homing: 0, size: 3, active: false }),
   resetBullet: (b: any) => { b.id = ''; b.x = 0; b.y = 0; b.vx = 0; b.vy = 0; b.life = 0; b.color = ''; b.dmg = 0; b.pierce = 0; b.homing = 0; b.size = 3; b.active = false; },
-  enemy: () => ({ id: '', x: 0, y: 0, vx: 0, vy: 0, hp: 0, maxHp: 0, type: 'chaser', speed: 0, size: 0, color: '', isElite: false, affixes: [], affixTimer: 0, xp: 0, score: 0, shootTimer: 0, attackTimer: 0, phase: 0, dead: false, active: false, life: 0, hitFlash: 0, rotation: 0, spawnAnim: 0 }),
-  resetEnemy: (e: any) => { e.id = ''; e.x = 0; e.y = 0; e.vx = 0; e.vy = 0; e.hp = 0; e.maxHp = 0; e.type = 'chaser'; e.speed = 0; e.size = 0; e.color = ''; e.isElite = false; e.affixes = []; e.affixTimer = 0; e.xp = 0; e.score = 0; e.shootTimer = 0; e.attackTimer = 0; e.phase = 0; e.dead = false; e.active = false; e.life = 0; e.hitFlash = 0; e.rotation = 0; e.spawnAnim = 0; },
+  enemy: () => ({ id: '', x: 0, y: 0, vx: 0, vy: 0, hp: 0, maxHp: 0, type: 'chaser', speed: 0, size: 0, color: '', isElite: false, affixes: [], affixTimer: 0, xp: 0, score: 0, shootTimer: 0, attackTimer: 0, phase: 0, flockForceX: 0, flockForceY: 0, dead: false, active: false, life: 0, hitFlash: 0, rotation: 0, spawnAnim: 0 }),
+  resetEnemy: (e: any) => { e.id = ''; e.x = 0; e.y = 0; e.vx = 0; e.vy = 0; e.hp = 0; e.maxHp = 0; e.type = 'chaser'; e.speed = 0; e.size = 0; e.color = ''; e.isElite = false; e.affixes = []; e.affixTimer = 0; e.xp = 0; e.score = 0; e.shootTimer = 0; e.attackTimer = 0; e.phase = 0; e.flockForceX = 0; e.flockForceY = 0; e.dead = false; e.active = false; e.life = 0; e.hitFlash = 0; e.rotation = 0; e.spawnAnim = 0; },
   particle: () => ({ x: 0, y: 0, vx: 0, vy: 0, life: 0, maxLife: 0, color: '', size: 0, friction: 0.92, type: 'glow', active: false, rotation: 0, rotationSpeed: 0 }),
   resetParticle: (p: any) => { p.x = 0; p.y = 0; p.vx = 0; p.vy = 0; p.life = 0; p.maxLife = 0; p.color = ''; p.size = 0; p.friction = 0.92; p.type = 'glow'; p.active = false; p.rotation = 0; p.rotationSpeed = 0; },
+  shard: () => ({ x: 0, y: 0, vx: 0, vy: 0, life: 0, maxLife: 0, color: '', size: 0, rotation: 0, rotationSpeed: 0, active: false }),
+  resetShard: (s: any) => { s.x = 0; s.y = 0; s.vx = 0; s.vy = 0; s.life = 0; s.maxLife = 0; s.color = ''; s.size = 0; s.rotation = 0; s.rotationSpeed = 0; s.active = false; },
   gem: () => ({ x: 0, y: 0, vx: 0, vy: 0, val: 0, life: 0, active: false }),
   resetGem: (g: any) => { g.x = 0; g.y = 0; g.vx = 0; g.vy = 0; g.val = 0; g.life = 0; g.active = false; },
   pickup: () => ({ x: 0, y: 0, vx: 0, vy: 0, type: 'heal', life: 0, active: false }),
@@ -52,6 +53,7 @@ export function resetPlayer(player: Player, width: number, height: number) {
   player.xp = 0; player.level = 1; player.xpToNext = CONFIG.PROGRESSION.XP_BASE;
   player.angle = -Math.PI / 2; player.cd = 0; player.dashCd = 0; player.maxDashCd = CONFIG.PLAYER.DASH.COOLDOWN; player.invuln = 0;
   player.hitFlash = 0; player.muzzleFlash = 0;
+  player.trail = [];
   player.weapon = 'DEFAULT';
   player.stats = { multishot: 0, fireRateMod: 1, speedMod: 1, damageMod: 1, magnetRange: CONFIG.GEMS.MAGNET_RANGE, orbitals: 0, homing: 0, pierce: 0 };
 }
@@ -66,7 +68,7 @@ export function createGameState(width: number, height: number): GameState {
         startTime: 0, runDuration: 0,
         quality: 'HIGH', qualitySettings: CONFIG.QUALITY.TIERS.HIGH,
         player: {} as Player,
-        bullets: [], enemies: [], particles: [], gems: [], pickups: [], texts: [], shockwaves: [], orbitals: [],
+        bullets: [], enemies: [], particles: [], shards: [], gems: [], pickups: [], texts: [], shockwaves: [], lights: [], orbitals: [],
         keys: { w: false, a: false, s: false, d: false, ArrowUp: false, ArrowDown: false, ArrowLeft: false, ArrowRight: false, space: false, shift: false, f: false },
         mouse: { x: width / 2, y: height / 2, down: false },
         touches: {},
@@ -76,6 +78,7 @@ export function createGameState(width: number, height: number): GameState {
             bullets: new ObjectPool(Factories.bullet, Factories.resetBullet, CONFIG.POOLS.BULLETS.initial, CONFIG.POOLS.BULLETS.max),
             enemies: new ObjectPool(Factories.enemy, Factories.resetEnemy, CONFIG.POOLS.ENEMIES.initial, CONFIG.POOLS.ENEMIES.max),
             particles: new ObjectPool(Factories.particle, Factories.resetParticle, CONFIG.POOLS.PARTICLES.initial, CONFIG.POOLS.PARTICLES.max),
+            shards: new ObjectPool(Factories.shard, Factories.resetShard, 50, 150),
             gems: new ObjectPool(Factories.gem, Factories.resetGem, CONFIG.POOLS.GEMS.initial, CONFIG.POOLS.GEMS.max),
             pickups: new ObjectPool(Factories.pickup, Factories.resetPickup, CONFIG.POOLS.PICKUPS.initial, CONFIG.POOLS.PICKUPS.max),
         },
@@ -87,8 +90,11 @@ export function createGameState(width: number, height: number): GameState {
 }
 
 export const createExplosion = (s: GameState, x: number, y: number, color: string, count = 10, speed = 1) => {
-    // Inject Force into Ether
-    if (s.visualGrid) s.visualGrid.applyForce(x, y, 150 * speed, 12 * speed);
+    // Inject Force into Fluid (Explosion Shockwave)
+    if (s.visualGrid) {
+        s.visualGrid.applyForce(x, y, 150 * speed, 50 * speed);
+        s.visualGrid.addDensity(x, y, 50 * speed);
+    }
     
     // Normal Debris Logic
     const maxCount = Math.min(count, s.qualitySettings.particles - s.particles.length);
@@ -100,16 +106,26 @@ export const createExplosion = (s: GameState, x: number, y: number, color: strin
         p.size = Utils.rand(2, 6); p.friction = 0.92; p.type = 'glow'; p.active = true;
         s.particles.push(p);
     }
-    const shardCount = Math.floor(count / 3);
-    for (let i = 0; i < shardCount; i++) {
-        const p = s.pools.particles.acquire(); if (!p) break;
-        const angle = Utils.rand(0, Math.PI * 2), vel = Utils.rand(1, 4) * speed;
-        p.x = x; p.y = y; p.vx = Math.cos(angle) * vel; p.vy = Math.sin(angle) * vel;
-        p.life = Utils.rand(40, 60); p.maxLife = 60; p.color = color;
-        p.size = Utils.rand(3, 8); p.friction = 0.95; p.type = 'shard'; p.active = true;
-        p.rotation = Utils.rand(0, Math.PI * 2);
-        p.rotationSpeed = Utils.rand(-0.2, 0.2);
-        s.particles.push(p);
+};
+
+const createDebris = (s: GameState, x: number, y: number, color: string, size: number) => {
+    const count = Math.ceil(size / 5);
+    for(let i=0; i<count; i++) {
+        const shard = s.pools.shards.acquire();
+        if(shard) {
+            const ang = Math.random() * Math.PI * 2;
+            const spd = Math.random() * 4;
+            shard.x = x; shard.y = y;
+            shard.vx = Math.cos(ang) * spd;
+            shard.vy = Math.sin(ang) * spd;
+            shard.life = 300; shard.maxLife = 300;
+            shard.color = color;
+            shard.size = Math.random() * (size * 0.4) + 2;
+            shard.rotation = Math.random() * Math.PI * 2;
+            shard.rotationSpeed = (Math.random() - 0.5) * 0.2;
+            shard.active = true;
+            s.shards.push(shard);
+        }
     }
 };
 
@@ -122,7 +138,10 @@ export const createEvolutionEffect = (s: GameState, x: number, y: number, color:
         s.shockwaves.push({ x, y, size: 10, maxSize: 800, color: '#ffffff', speed: 20, alpha: 0.8, width: 30 });
     }, 100);
     // Huge Ether disturbance
-    if (s.visualGrid) s.visualGrid.applyForce(x, y, 800, 100);
+    if (s.visualGrid) {
+        s.visualGrid.applyForce(x, y, 800, 200);
+        s.visualGrid.addDensity(x, y, 200);
+    }
     createFloatingText(s, x, y - 100, "EVOLUTION!", color, 40);
 };
 
@@ -289,9 +308,15 @@ export function updateGame(s: GameState, callbacks: GameCallbacks) {
     p.x = Utils.clamp(p.x + p.vx * s.timeScale, 0, s.width);
     p.y = Utils.clamp(p.y + p.vy * s.timeScale, 0, s.height);
 
-    // INJECT PLAYER VELOCITY INTO ETHER
+    // Record Trail (Temporal Echo)
+    if (s.frame % 3 === 0) {
+        p.trail.unshift({ x: p.x, y: p.y, angle: p.angle });
+        if (p.trail.length > 8) p.trail.pop();
+    }
+
+    // INJECT PLAYER VELOCITY INTO FLUID
     if (Math.abs(p.vx) > 0.1 || Math.abs(p.vy) > 0.1) {
-        s.visualGrid.addVelocity(p.x, p.y, p.vx * 2, p.vy * 2);
+        s.visualGrid.addVelocity(p.x, p.y, p.vx * 3, p.vy * 3);
     }
 
     // Engine Particles
@@ -306,6 +331,9 @@ export function updateGame(s: GameState, callbacks: GameCallbacks) {
                 part.life = 15; part.maxLife = 15; part.color = '#00f3ff'; part.size = Utils.rand(2, 5);
                 part.friction = 0.9; part.type = 'glow'; part.active = true;
                 s.particles.push(part);
+                // Thrusters add fluid density
+                s.visualGrid.addDensity(part.x, part.y, 20);
+                s.visualGrid.addVelocity(part.x, part.y, part.vx * 2, part.vy * 2);
             }
         };
         spawnThruster(0.4); spawnThruster(-0.4);
@@ -322,14 +350,14 @@ export function updateGame(s: GameState, callbacks: GameCallbacks) {
     if (triggerUlt && s.overdrive >= 100) {
         s.overdrive = 0; callbacks.playSound('ultimate'); createShockwave(s, p.x, p.y, 1500, CONFIG.COLORS.ULTIMATE, 25); s.shake = 30;
         // Warp the Ether on Ult
-        s.visualGrid.applyForce(p.x, p.y, 600, 100);
+        s.visualGrid.applyForce(p.x, p.y, 600, 200);
         s.bullets.forEach(b => { s.pools.bullets.release(b); }); s.bullets = [];
         for (const e of s.enemies) {
             if(e.active) {
                 e.hp -= 200; e.hitFlash = 10;
                 const ang = Math.atan2(e.y - p.y, e.x - p.x); e.vx += Math.cos(ang) * 20; e.vy += Math.sin(ang) * 20;
                 if(e.hp <= 0 && !e.dead) {
-                     e.dead = true; s.waveKills++; s.combo++; s.comboTimer = CONFIG.PROGRESSION.COMBO_DURATION; s.score += e.score; createGem(s, e.x, e.y, e.xp); createExplosion(s, e.x, e.y, e.color, 20);
+                     e.dead = true; s.waveKills++; s.combo++; s.comboTimer = CONFIG.PROGRESSION.COMBO_DURATION; s.score += e.score; createGem(s, e.x, e.y, e.xp); createExplosion(s, e.x, e.y, e.color, 20); createDebris(s, e.x, e.y, e.color, e.size);
                 }
             }
         }
@@ -348,8 +376,9 @@ export function updateGame(s: GameState, callbacks: GameCallbacks) {
           if (dmx === 0 && dmy === 0) { dmx = Math.cos(p.angle); dmy = Math.sin(p.angle); } else { const m = Math.hypot(dmx, dmy) || 1; dmx /= m; dmy /= m; }
       }
       p.vx = dmx * CONFIG.PLAYER.DASH.SPEED; p.vy = dmy * CONFIG.PLAYER.DASH.SPEED;
-      // Dash Wake in Ether
+      // Dash Wake in Fluid
       s.visualGrid.addVelocity(p.x, p.y, p.vx * 4, p.vy * 4);
+      s.visualGrid.addDensity(p.x, p.y, 100);
       
       createShockwave(s, p.x, p.y, 200, CONFIG.COLORS.PLAYER_DASH, 10);
       for (let i = 0; i < 5; i++) {
@@ -390,11 +419,64 @@ export function updateGame(s: GameState, callbacks: GameCallbacks) {
     for (let i = s.enemies.length - 1; i >= 0; i--) {
       const e = s.enemies[i];
       if (!e.active || e.dead) continue;
-      // Enemies drag the ether slightly
-      if (Math.abs(e.vx) > 0.1 || Math.abs(e.vy) > 0.1) {
-          s.visualGrid.addVelocity(e.x, e.y, e.vx * 0.5, e.vy * 0.5);
+
+      // --- FLOCKING BEHAVIOR (BOIDS) ---
+      // Reset accumulator
+      e.flockForceX = 0; e.flockForceY = 0;
+
+      let separationX = 0, separationY = 0;
+      let alignmentX = 0, alignmentY = 0;
+      let cohesionX = 0, cohesionY = 0;
+      let count = 0;
+
+      // Query neighbors (Boids optimization: only check nearby)
+      const nearby = s.spatialGrid.queryRadius(e.x, e.y, 80);
+      for (const other of nearby) {
+          if (other.id !== e.id && other.type === e.type && other.active) {
+              const d = Utils.dist(e.x, e.y, other.x, other.y);
+              if (d < 80 && d > 0) {
+                  // Separation: Push away from neighbors
+                  const push = 100 / (d * d); // Inverse square
+                  separationX += (e.x - other.x) * push;
+                  separationY += (e.y - other.y) * push;
+
+                  // Alignment
+                  alignmentX += other.vx;
+                  alignmentY += other.vy;
+
+                  // Cohesion
+                  cohesionX += other.x;
+                  cohesionY += other.y;
+
+                  count++;
+              }
+          }
       }
-      // ... [Existing enemy update logic unchanged] ...
+
+      if (count > 0) {
+          alignmentX /= count; alignmentY /= count;
+          cohesionX /= count; cohesionY /= count;
+
+          cohesionX = (cohesionX - e.x) * 0.05;
+          cohesionY = (cohesionY - e.y) * 0.05;
+
+          e.flockForceX = separationX * 1.5 + alignmentX * 0.1 + cohesionX * 0.01;
+          e.flockForceY = separationY * 1.5 + alignmentY * 0.1 + cohesionY * 0.01;
+      }
+
+      // --- FLUID RHEOTAXIS ---
+      // Enemies drift with fluid, but also try to swim against it if aggressive?
+      // No, let's have them surf.
+      const fluidV = s.visualGrid.getVelocityAt(e.x, e.y);
+
+      // Apply Forces
+      e.vx += e.flockForceX * 0.1;
+      e.vy += e.flockForceY * 0.1;
+      e.vx += fluidV.vx * 0.5;
+      e.vy += fluidV.vy * 0.5;
+
+      // Standard AI Steering (Seek Player)
+      // ... [Existing enemy update logic] ...
       if (e.hitFlash > 0) e.hitFlash--;
       if (e.spawnAnim < 1) e.spawnAnim = Math.min(1, e.spawnAnim + 0.05);
       
@@ -437,7 +519,11 @@ export function updateGame(s: GameState, callbacks: GameCallbacks) {
     
     // Cleanup Logic
     for (let i = s.enemies.length - 1; i >= 0; i--) { const e = s.enemies[i]; if (e.dead || !e.active) { s.pools.enemies.release(e); s.enemies.splice(i, 1); } }
-    for(let i=s.pickups.length-1; i>=0; i--) { const pick = s.pickups[i]; const dist = Utils.dist(pick.x, pick.y, p.x, p.y); if (dist < 150) { pick.x += (p.x - pick.x) * 0.05; pick.y += (p.y - pick.y) * 0.05; } if (dist < 30) { if(pick.type === 'heal') { p.hp = Math.min(p.maxHp, p.hp + CONFIG.PICKUPS.HEAL_AMOUNT); createFloatingText(s, p.x, p.y, `+${CONFIG.PICKUPS.HEAL_AMOUNT} HP`, '#00ff00', 20); callbacks.playSound('pickup'); } s.pools.pickups.release(pick); s.pickups.splice(i, 1); } else { pick.life--; if(pick.life <= 0) { s.pools.pickups.release(pick); s.pickups.splice(i, 1); } } }
+    for(let i=s.pickups.length-1; i>=0; i--) { const pick = s.pickups[i]; const dist = Utils.dist(pick.x, pick.y, p.x, p.y); if (dist < 150) { pick.x += (p.x - pick.x) * 0.05; pick.y += (p.y - pick.y) * 0.05; } if (dist < 30) { if(pick.type === 'heal') { p.hp = Math.min(p.maxHp, p.hp + CONFIG.PICKUPS.HEAL_AMOUNT); createFloatingText(s, p.x, p.y, `+${CONFIG.PICKUPS.HEAL_AMOUNT} HP`, '#00ff00', 20); callbacks.playSound('pickup'); } s.pools.pickups.release(pick); s.pickups.splice(i, 1); } else { pick.life--;
+    // Pickups drift with fluid
+    const fv = s.visualGrid.getVelocityAt(pick.x, pick.y);
+    pick.x += fv.vx * 2; pick.y += fv.vy * 2;
+    if(pick.life <= 0) { s.pools.pickups.release(pick); s.pickups.splice(i, 1); } } }
     
     // Bullet Update Loop
     for (let bi = s.bullets.length - 1; bi >= 0; bi--) { 
@@ -447,7 +533,17 @@ export function updateGame(s: GameState, callbacks: GameCallbacks) {
         s.visualGrid.addVelocity(b.x, b.y, b.vx * 0.3, b.vy * 0.3);
         
         if (b.homing > 0 && s.quality !== 'LOW') { let target = null, minD = 400; const nearby = s.spatialGrid.queryRadius(b.x, b.y, 400); for (const e of nearby) { if (e.type === 'projectile' || !e.active) continue; const d = Utils.dist(b.x, b.y, e.x, e.y); if (d < minD) { minD = d; target = e; } } if (target) { const wantAng = Math.atan2(target.y - b.y, target.x - b.x); const currAng = Math.atan2(b.vy, b.vx); const diff = Utils.angleDiff(currAng, wantAng); const newAng = currAng + diff * b.homing; const spd = Math.hypot(b.vx, b.vy); b.vx = Math.cos(newAng) * spd; b.vy = Math.sin(newAng) * spd; } } 
-        b.x += b.vx * s.timeScale; b.y += b.vy * s.timeScale; b.life--; if (b.life <= 0 || !Utils.inBounds(b.x, b.y, s.width, s.height, 50)) { s.pools.bullets.release(b); s.bullets.splice(bi, 1); continue; } 
+        b.x += b.vx * s.timeScale; b.y += b.vy * s.timeScale; b.life--;
+
+        // High velocity cavitation (tunneling)
+        const speed = Math.hypot(b.vx, b.vy);
+        if (speed > 10 && s.visualGrid) {
+            // Push fluid OUT from bullet path
+            s.visualGrid.applyForce(b.x, b.y, 20, speed * 0.5);
+            s.visualGrid.removeDensity(b.x, b.y, 10);
+        }
+
+        if (b.life <= 0 || !Utils.inBounds(b.x, b.y, s.width, s.height, 50)) { s.pools.bullets.release(b); s.bullets.splice(bi, 1); continue; }
         const candidates = s.spatialGrid.queryRadius(b.x, b.y, 50); let hitEnemy = false; 
         for (const e of candidates) { 
             if (e.type === 'projectile' || e.dead || !e.active) continue; 
@@ -458,6 +554,7 @@ export function updateGame(s: GameState, callbacks: GameCallbacks) {
                     e.dead = true; s.waveKills++; s.combo++; s.comboTimer = CONFIG.PROGRESSION.COMBO_DURATION; s.overdrive = Math.min(100, s.overdrive + (e.isElite ? 15 : 4)); 
                     const comboBonus = 1 + s.combo * CONFIG.PROGRESSION.COMBO_BONUS; s.score += e.score * comboBonus; createGem(s, e.x, e.y, e.xp); callbacks.playSound('explosion'); 
                     createExplosion(s, e.x, e.y, e.color, e.isElite ? 25 : 15, e.isElite ? 2 : 1.2); 
+                    createDebris(s, e.x, e.y, e.color, e.size); // Debris on death
                     // Explosion interacts with Ether
                     if (s.visualGrid) s.visualGrid.applyForce(e.x, e.y, e.size * 4, 30);
                     
@@ -471,9 +568,37 @@ export function updateGame(s: GameState, callbacks: GameCallbacks) {
         if (hitEnemy) { s.pools.bullets.release(b); s.bullets.splice(bi, 1); } 
     }
     
+    // Update Shards (Physics Debris)
+    for (let i = s.shards.length - 1; i >= 0; i--) {
+        const shard = s.shards[i];
+        if (!shard.active) continue;
+
+        // Fluid Drag
+        const fv = s.visualGrid.getVelocityAt(shard.x, shard.y);
+        shard.vx = shard.vx * 0.95 + fv.vx * 2;
+        shard.vy = shard.vy * 0.95 + fv.vy * 2;
+
+        shard.x += shard.vx * s.timeScale;
+        shard.y += shard.vy * s.timeScale;
+        shard.rotation += shard.rotationSpeed * s.timeScale;
+
+        shard.life -= s.timeScale;
+
+        if (shard.life <= 0) {
+            s.pools.shards.release(shard);
+            s.shards.splice(i, 1);
+        }
+    }
+
     // ... [Rest of update loops unchanged] ...
-    for (let i = s.gems.length - 1; i >= 0; i--) { const g = s.gems[i]; if (!g.active) continue; const d = Utils.dist(g.x, g.y, p.x, p.y); if (d < p.stats.magnetRange) { g.vx += (p.x - g.x) * CONFIG.GEMS.PULL_STRENGTH; g.vy += (p.y - g.y) * CONFIG.GEMS.PULL_STRENGTH; } g.x += g.vx; g.y += g.vy; g.vx *= CONFIG.GEMS.FRICTION; g.vy *= CONFIG.GEMS.FRICTION; g.life--; if (d < CONFIG.GEMS.COLLECT_RADIUS) { p.xp += g.val; if (p.xp >= p.xpToNext) { p.xp -= p.xpToNext; p.level++; p.xpToNext = Math.floor(p.xpToNext * CONFIG.PROGRESSION.XP_SCALE); s.paused = true; callbacks.playSound('levelup'); const pool: UpgradeOption[] = []; UPGRADES.forEach(u => { const current = s.upgradeStacks.get(u.id) || 0; if (current < u.maxStack) { const weight = Math.max(0.1, u.weight - current * 0.1); for (let k = 0; k < weight * 10; k++) pool.push({ ...u, currentStack: current }); } }); const options: UpgradeOption[] = []; if (pool.length > 0) { while (options.length < 3 && pool.length > 0) { const idx = Math.floor(Math.random() * pool.length); const pick = pool[idx]; if (!options.find(o => o.id === pick.id)) options.push(pick); for (let z = pool.length - 1; z >= 0; z--) if (pool[z].id === pick.id) pool.splice(z, 1); } callbacks.onLevelUp(options); } else { s.paused = false; } } s.pools.gems.release(g); s.gems.splice(i, 1); } else if (g.life <= 0) { s.pools.gems.release(g); s.gems.splice(i, 1); } }
-    for (let i = s.particles.length - 1; i >= 0; i--) { const part = s.particles[i]; if (!part.active) continue; part.x += part.vx * s.timeScale; part.y += part.vy * s.timeScale; part.vx *= part.friction; part.vy *= part.friction; part.life -= s.timeScale; if (part.type === 'shard') { part.rotation += part.rotationSpeed * s.timeScale; part.rotationSpeed *= 0.98; } if (part.life <= 0) { s.pools.particles.release(part); s.particles.splice(i, 1); } }
+    for (let i = s.gems.length - 1; i >= 0; i--) { const g = s.gems[i]; if (!g.active) continue; const d = Utils.dist(g.x, g.y, p.x, p.y); if (d < p.stats.magnetRange) { g.vx += (p.x - g.x) * CONFIG.GEMS.PULL_STRENGTH; g.vy += (p.y - g.y) * CONFIG.GEMS.PULL_STRENGTH; } g.x += g.vx; g.y += g.vy; g.vx *= CONFIG.GEMS.FRICTION; g.vy *= CONFIG.GEMS.FRICTION; g.life--;
+    // Gems drift with fluid
+    const fv = s.visualGrid.getVelocityAt(g.x, g.y); g.vx += fv.vx * 1.0; g.vy += fv.vy * 1.0;
+    if (d < CONFIG.GEMS.COLLECT_RADIUS) { p.xp += g.val; if (p.xp >= p.xpToNext) { p.xp -= p.xpToNext; p.level++; p.xpToNext = Math.floor(p.xpToNext * CONFIG.PROGRESSION.XP_SCALE); s.paused = true; callbacks.playSound('levelup'); const pool: UpgradeOption[] = []; UPGRADES.forEach(u => { const current = s.upgradeStacks.get(u.id) || 0; if (current < u.maxStack) { const weight = Math.max(0.1, u.weight - current * 0.1); for (let k = 0; k < weight * 10; k++) pool.push({ ...u, currentStack: current }); } }); const options: UpgradeOption[] = []; if (pool.length > 0) { while (options.length < 3 && pool.length > 0) { const idx = Math.floor(Math.random() * pool.length); const pick = pool[idx]; if (!options.find(o => o.id === pick.id)) options.push(pick); for (let z = pool.length - 1; z >= 0; z--) if (pool[z].id === pick.id) pool.splice(z, 1); } callbacks.onLevelUp(options); } else { s.paused = false; } } s.pools.gems.release(g); s.gems.splice(i, 1); } else if (g.life <= 0) { s.pools.gems.release(g); s.gems.splice(i, 1); } }
+    for (let i = s.particles.length - 1; i >= 0; i--) { const part = s.particles[i]; if (!part.active) continue;
+    // Particles drift with fluid
+    const fv = s.visualGrid.getVelocityAt(part.x, part.y); part.vx += fv.vx * 2.5; part.vy += fv.vy * 2.5;
+    part.x += part.vx * s.timeScale; part.y += part.vy * s.timeScale; part.vx *= part.friction; part.vy *= part.friction; part.life -= s.timeScale; if (part.type === 'shard') { part.rotation += part.rotationSpeed * s.timeScale; part.rotationSpeed *= 0.98; } if (part.life <= 0) { s.pools.particles.release(part); s.particles.splice(i, 1); } }
     for (let i = s.shockwaves.length - 1; i >= 0; i--) { const sw = s.shockwaves[i]; sw.size += sw.speed * s.timeScale; sw.alpha -= 0.03 * s.timeScale; if (sw.alpha <= 0) s.shockwaves.splice(i, 1); }
     for (const o of s.orbitals) { o.angle += 0.05; const ox = p.x + Math.cos(o.angle) * o.dist; const oy = p.y + Math.sin(o.angle) * o.dist; for (const e of s.enemies) { if (e.type === 'projectile' || e.dead || !e.active) continue; if (Utils.dist(ox, oy, e.x, e.y) < e.size + 10) { e.hp -= 2; e.hitFlash = 2; createExplosion(s, e.x, e.y, '#00ffff', 1, 0.5); } } }
     for (let i = s.texts.length - 1; i >= 0; i--) { const t = s.texts[i]; t.x += t.vx * s.timeScale; t.y += t.vy * s.timeScale; t.vy += 0.1 * s.timeScale; t.life -= s.timeScale; if (t.life <= 0) s.texts.splice(i, 1); }
