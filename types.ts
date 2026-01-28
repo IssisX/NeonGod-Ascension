@@ -61,6 +61,9 @@ export interface Enemy extends Entity {
   shootTimer: number;
   attackTimer: number;
   phase: number;
+  // Boid / Fluid coupling
+  flockForceX: number;
+  flockForceY: number;
   dead: boolean;
   life: number;
   hitFlash: number;
@@ -77,6 +80,15 @@ export interface Particle extends Entity {
   type: 'glow' | 'shard' | 'ring' | 'text' | 'ghost'; 
   rotation: number;     
   rotationSpeed: number; 
+}
+
+export interface Shard extends Entity {
+  life: number;
+  maxLife: number;
+  color: string;
+  size: number;
+  rotation: number;
+  rotationSpeed: number;
 }
 
 export interface Gem extends Entity {
@@ -165,6 +177,7 @@ export interface GameState {
   bullets: Bullet[];
   enemies: Enemy[];
   particles: Particle[];
+  shards: Shard[]; // Persistent debris
   gems: Gem[];
   pickups: Pickup[];
   texts: FloatingText[];
@@ -182,6 +195,7 @@ export interface GameState {
     bullets: any;
     enemies: any;
     particles: any;
+    shards: any;
     gems: any;
     pickups: any;
   };

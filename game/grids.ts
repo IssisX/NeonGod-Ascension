@@ -135,7 +135,26 @@ export class VisualGrid {
       const cx = Math.floor(x / this.size);
       const cy = Math.floor(y / this.size);
       if (cx >= 0 && cx < this.cols && cy >= 0 && cy < this.rows) {
-        this.density[this.IX(cx, cy)] += amount;
+        const idx = this.IX(cx, cy);
+        this.density[idx] += amount;
+        if(this.density[idx] > 255) this.density[idx] = 255;
+      }
+  }
+
+  // Remove density (Cavitation)
+  removeDensity(x: number, y: number, radius: number) {
+      const cx = Math.floor(x / this.size);
+      const cy = Math.floor(y / this.size);
+      const radCells = Math.ceil(radius / this.size);
+
+      for(let i = -radCells; i <= radCells; i++) {
+          for(let j = -radCells; j <= radCells; j++) {
+              const idxX = cx + i;
+              const idxY = cy + j;
+              if (idxX >= 0 && idxX < this.cols && idxY >= 0 && idxY < this.rows) {
+                  this.density[this.IX(idxX, idxY)] *= 0.5; // Diminish rapidly
+              }
+          }
       }
   }
 

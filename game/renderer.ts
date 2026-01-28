@@ -105,10 +105,10 @@ const renderLighting = (ctx: CanvasRenderingContext2D, s: GameState) => {
         const rad = l.radius * flicker;
 
         const grad = ctx.createRadialGradient(l.x, l.y, 0, l.x, l.y, rad);
-        grad.addColorStop(0, l.color); // We rely on globalAlpha for intensity, but better to parse color or use simple additive
+        grad.addColorStop(0, l.color);
         grad.addColorStop(1, '#000000');
 
-        ctx.globalAlpha = l.intensity * 0.4; // Base intensity scaling
+        ctx.globalAlpha = l.intensity * 0.4;
         ctx.fillStyle = grad;
         ctx.beginPath();
         ctx.arc(l.x, l.y, rad, 0, Math.PI * 2);
@@ -127,7 +127,7 @@ export const renderGame = (ctx: CanvasRenderingContext2D, s: GameState) => {
         abY = Math.random() * 6 * trauma;
     }
 
-    // --- PASS 1: BACKGROUND ---
+    // --- PASS 1: BACKGROUND (Relativistic Warp) ---
     ctx.fillStyle = '#050510';
     ctx.fillRect(0, 0, s.width, s.height);
 
@@ -137,10 +137,19 @@ export const renderGame = (ctx: CanvasRenderingContext2D, s: GameState) => {
         ctx.translate(Utils.rand(-s.shake, s.shake), Utils.rand(-s.shake, s.shake));
     }
 
+    // Warped Starfield
     ctx.fillStyle = '#ffffff';
-    for(let i=0; i<50; i++) {
-        const x = (i * 137 + s.player.x * 0.1) % s.width;
-        const y = (i * 243 + s.player.y * 0.1) % s.height;
+    for(let i=0; i<60; i++) {
+        let x = (i * 137 + s.player.x * 0.1) % s.width;
+        let y = (i * 243 + s.player.y * 0.1) % s.height;
+
+        // Relativistic Distortion: Offset stars based on fluid velocity
+        if (s.visualGrid) {
+            const fv = s.visualGrid.getVelocityAt(x, y);
+            x += fv.vx * 15; // Magnify the effect
+            y += fv.vy * 15;
+        }
+
         const size = (i % 3) * 0.5 + 0.5;
         const alpha = 0.2 + (Math.sin(s.frame * 0.05 + i) * 0.2);
         ctx.globalAlpha = alpha;
@@ -162,14 +171,21 @@ export const renderGame = (ctx: CanvasRenderingContext2D, s: GameState) => {
         else if (channel === 'blue') { ctx.globalCompositeOperation = 'screen'; ctx.fillStyle = '#0000ff'; ctx.strokeStyle = '#0000ff'; ctx.globalAlpha = 0.5; }
         else { ctx.globalCompositeOperation = 'source-over'; ctx.globalAlpha = 1; }
 
-        // Debris
-        for (const part of s.particles) {
-            if (!part.active || part.type !== 'shard') continue;
-            ctx.save(); ctx.translate(part.x + offsetX, part.y + offsetY); ctx.rotate(part.rotation);
-            if (channel === 'main') ctx.fillStyle = part.color;
+        // Shards (Debris)
+        for (const shard of s.shards) {
+            if (!shard.active) continue;
+            ctx.save(); ctx.translate(shard.x + offsetX, shard.y + offsetY); ctx.rotate(shard.rotation);
+            if (channel === 'main') ctx.fillStyle = shard.color;
+            ctx.globalAlpha = Math.min(1, shard.life / 50);
+
+            // Draw irregular shard
             ctx.beginPath();
-            ctx.moveTo(-part.size, -part.size/2); ctx.lineTo(part.size, 0); ctx.lineTo(-part.size, part.size/2);
-            ctx.fill(); ctx.restore();
+            ctx.moveTo(-shard.size/2, -shard.size/2);
+            ctx.lineTo(shard.size/2, 0);
+            ctx.lineTo(-shard.size/2, shard.size/2);
+            ctx.fill();
+
+            ctx.restore();
         }
 
         // Enemies
