@@ -4,26 +4,21 @@ import { Utils } from '../utils';
 import { SpatialGrid, VisualGrid } from './grids';
 
 // --- POOLS & FACTORIES ---
-
+// (Kept streamlined for performance)
 export const Factories = {
-  // Enhanced Bullet Factory
   bullet: () => ({ id: '', x: 0, y: 0, vx: 0, vy: 0, life: 0, maxLife: 0, color: '', dmg: 0, pierce: 0, homing: 0, size: 3, active: false, behavior: 'STRAIGHT', behaviorParams: {}, originX: 0, originY: 0, angle: 0 }),
   resetBullet: (b: any) => { 
       b.id = ''; b.x = 0; b.y = 0; b.vx = 0; b.vy = 0; b.life = 0; b.maxLife = 0; b.color = ''; b.dmg = 0; 
       b.pierce = 0; b.homing = 0; b.size = 3; b.active = false; 
       b.behavior = 'STRAIGHT'; b.behaviorParams = {}; b.originX = 0; b.originY = 0; b.angle = 0;
   },
-  
   enemy: () => ({ id: '', x: 0, y: 0, vx: 0, vy: 0, hp: 0, maxHp: 0, type: 'chaser', speed: 0, size: 0, color: '', isElite: false, affixes: [], affixTimer: 0, xp: 0, score: 0, shootTimer: 0, attackTimer: 0, phase: 0, dead: false, active: false, life: 0, hitFlash: 0, rotation: 0, spawnAnim: 0 }),
   resetEnemy: (e: any) => { e.id = ''; e.x = 0; e.y = 0; e.vx = 0; e.vy = 0; e.hp = 0; e.maxHp = 0; e.type = 'chaser'; e.speed = 0; e.size = 0; e.color = ''; e.isElite = false; e.affixes = []; e.affixTimer = 0; e.xp = 0; e.score = 0; e.shootTimer = 0; e.attackTimer = 0; e.phase = 0; e.dead = false; e.active = false; e.life = 0; e.hitFlash = 0; e.rotation = 0; e.spawnAnim = 0; },
-  
-  // Enhanced Particle Factory (Supports Polygon Shards)
   particle: () => ({ x: 0, y: 0, vx: 0, vy: 0, life: 0, maxLife: 0, color: '', size: 0, friction: 0.92, type: 'glow', active: false, rotation: 0, rotationSpeed: 0, polyPoints: [] }),
   resetParticle: (p: any) => { 
       p.x = 0; p.y = 0; p.vx = 0; p.vy = 0; p.life = 0; p.maxLife = 0; p.color = ''; p.size = 0; 
       p.friction = 0.92; p.type = 'glow'; p.active = false; p.rotation = 0; p.rotationSpeed = 0; p.polyPoints = []; 
   },
-  
   gem: () => ({ x: 0, y: 0, vx: 0, vy: 0, val: 0, life: 0, active: false }),
   resetGem: (g: any) => { g.x = 0; g.y = 0; g.vx = 0; g.vy = 0; g.val = 0; g.life = 0; g.active = false; },
   pickup: () => ({ x: 0, y: 0, vx: 0, vy: 0, type: 'heal', life: 0, active: false }),
@@ -36,7 +31,6 @@ class ObjectPool<T> {
     max: number;
     available: T[];
     active: Set<T>;
-
     constructor(factory: () => T, reset: (obj: T) => void, initial = 50, max = 200) {
         this.factory = factory; this.reset = reset; this.max = max;
         this.available = []; this.active = new Set();
@@ -94,22 +88,20 @@ export function createGameState(width: number, height: number): GameState {
         spatialGrid: new SpatialGrid(CONFIG.SPATIAL.CELL_SIZE),
         visualGrid: new VisualGrid(width, height),
     };
+    s.spatialGrid.resize(width, height);
     resetPlayer(s.player, width, height);
     return s;
 }
 
-// FRACTURE PHYSICS: Generates geometric shards instead of simple particles
-const createDebris = (s: GameState, x: number, y: number, color: string, count: number, speed: number) => {
-    // 1. Ether Force
-    if (s.visualGrid) s.visualGrid.applyForce(x, y, 150 * speed, 12 * speed);
+// --- FRACTURE & PHYSICS HELPERS ---
 
+const createDebris = (s: GameState, x: number, y: number, color: string, count: number, speed: number) => {
+    if (s.visualGrid) s.visualGrid.applyForce(x, y, 150 * speed, 12 * speed);
     const maxCount = Math.min(count, s.qualitySettings.particles - s.particles.length);
     for (let i = 0; i < maxCount; i++) {
         const p = s.pools.particles.acquire();
         if (!p) break;
         
-        // Procedural Polygon Generation
-        // Create an irregular triangle/quad
         const pts = [];
         const sides = Math.random() > 0.5 ? 3 : 4;
         const rad = Utils.rand(4, 10);
@@ -118,27 +110,14 @@ const createDebris = (s: GameState, x: number, y: number, color: string, count: 
             const r = rad * Utils.rand(0.7, 1.3);
             pts.push({ x: Math.cos(ang) * r, y: Math.sin(ang) * r });
         }
-
         const angle = Utils.rand(0, Math.PI * 2);
         const vel = Utils.rand(2, 6) * speed;
-        
-        p.x = x; p.y = y; 
-        p.vx = Math.cos(angle) * vel; 
-        p.vy = Math.sin(angle) * vel;
-        p.life = Utils.rand(30, 60); 
-        p.maxLife = 60; 
-        p.color = color;
-        p.size = rad; 
-        p.friction = 0.94; // Slide a bit more
-        p.type = 'poly'; // New Type
-        p.polyPoints = pts;
-        p.rotation = Utils.rand(0, Math.PI * 2);
-        p.rotationSpeed = Utils.rand(-0.3, 0.3); // Spin
-        p.active = true;
+        p.x = x; p.y = y; p.vx = Math.cos(angle) * vel; p.vy = Math.sin(angle) * vel;
+        p.life = Utils.rand(30, 60); p.maxLife = 60; p.color = color;
+        p.size = rad; p.friction = 0.94; p.type = 'poly'; p.polyPoints = pts;
+        p.rotation = Utils.rand(0, Math.PI * 2); p.rotationSpeed = Utils.rand(-0.3, 0.3); p.active = true;
         s.particles.push(p);
     }
-    
-    // Add some glow particles too for "juice"
     const glowCount = Math.floor(count / 2);
     for (let i = 0; i < glowCount; i++) {
         const p = s.pools.particles.acquire(); if (!p) break;
@@ -186,10 +165,10 @@ const createPickup = (s: GameState, x: number, y: number) => {
     s.pickups.push(p);
 };
 
-// ... [Auto Pilot logic omitted for brevity, assume same as before] ...
+// --- AUTOPILOT AI ---
 function calculateAutoPilot(s: GameState): { mx: number; my: number; aimAngle: number; shoot: boolean; dash: boolean; ult: boolean } {
     const p = s.player;
-    let moveX = 0; let moveY = 0; let totalDanger = 0;
+    let moveX = 0, moveY = 0, totalDanger = 0;
     const searchRadius = 250;
     const nearby = s.spatialGrid.queryRadius(p.x, p.y, searchRadius);
     let nearestEnemy: Enemy | null = null;
@@ -228,6 +207,7 @@ function calculateAutoPilot(s: GameState): { mx: number; my: number; aimAngle: n
 
     let aimAngle = p.angle;
     if (!nearestEnemy) {
+        // Fallback search if grid was empty (though grid is now robust)
         for (const e of s.enemies) {
             if (!e.active || e.dead || e.type === 'projectile') continue;
             const dist = Utils.dist(p.x, p.y, e.x, e.y);
@@ -259,14 +239,21 @@ interface GameCallbacks {
     setAudioIntensity: (val: number) => void;
 }
 
+// --- MAIN GAME LOOP ---
+
 export function updateGame(s: GameState, callbacks: GameCallbacks) {
+    // 1. SELF-HEALING: Detect and fix uninitialized grids caused by resize bugs
+    if (s.spatialGrid.width === 0 || s.spatialGrid.cols === 0) {
+        console.warn("System: Grid uninitialized. Executing Emergency Repair Protocol.");
+        s.spatialGrid.resize(s.width, s.height);
+    }
+
     const enemyStress = Math.min(1, s.enemies.length / 30);
     const healthStress = 1 - (s.player.hp / s.player.maxHp);
     const bossStress = s.bossActive ? 0.3 : 0;
     const intensity = Math.min(1, enemyStress * 0.6 + healthStress * 0.3 + bossStress);
     callbacks.setAudioIntensity(intensity);
 
-    // ... [Load Calculation & Quality Settings] ...
     const load = s.enemies.length + s.bullets.length * 0.3 + s.particles.length * 0.15;
     let q = 'LOW';
     if (load < CONFIG.QUALITY.LOAD_THRESHOLDS.HIGH_MAX) q = 'HIGH';
@@ -280,15 +267,18 @@ export function updateGame(s: GameState, callbacks: GameCallbacks) {
     if (s.screenFlash > 0) { s.screenFlash -= 0.03; if(s.screenFlash < 0) s.screenFlash = 0; }
 
     const step = s.quality === 'LOW' ? 3 : s.quality === 'MEDIUM' ? 2 : 1;
-    if (s.frame % step === 0) { s.spatialGrid.clear(); for (const e of s.enemies) if (e.active) s.spatialGrid.insert(e); }
-    // Update Ether Grid
+    if (s.frame % step === 0) { 
+        s.spatialGrid.clear(); 
+        // Only insert active enemies on screen + padding
+        for (const e of s.enemies) if (e.active) s.spatialGrid.insert(e); 
+    }
     s.visualGrid.update(s.qualitySettings.gridStep);
 
     const p = s.player;
     if (p.hitFlash > 0) p.hitFlash--;
     if (p.muzzleFlash > 0) p.muzzleFlash--;
     
-    // ... [Input and Movement logic] ...
+    // INPUT HANDLING
     let mx = 0, my = 0;
     let autoShooting = false; let autoDash = false; let autoUlt = false;
 
@@ -366,7 +356,6 @@ export function updateGame(s: GameState, callbacks: GameCallbacks) {
         }
     }
 
-    // Dash Logic
     const triggerDash = s.autoMode ? autoDash : (s.keys.space || s.keys.shift);
     if (triggerDash && p.dashCd <= 0) {
       callbacks.playSound('dash'); p.dashCd = p.maxDashCd; p.invuln = CONFIG.PLAYER.DASH.INVULN_DURATION;
@@ -404,33 +393,18 @@ export function updateGame(s: GameState, callbacks: GameCallbacks) {
         bullet.id = Utils.uid('b'); 
         bullet.x = p.x + Math.cos(finalAngle) * 15; 
         bullet.y = p.y + Math.sin(finalAngle) * 15;
-        // INITIAL VELOCITY (Vector)
         bullet.vx = Math.cos(finalAngle) * arch.speed; 
         bullet.vy = Math.sin(finalAngle) * arch.speed;
-        
         bullet.life = arch.lifetime; bullet.maxLife = arch.lifetime;
         bullet.color = arch.color; bullet.dmg = baseDmg;
         bullet.pierce = (arch.pierce || 0) + p.stats.pierce; 
         bullet.homing = Math.max(arch.homing || 0, p.stats.homing);
         bullet.size = arch.size || 3; bullet.active = true;
-        
-        // PARAMETRIC SETUP
-        bullet.originX = bullet.x;
-        bullet.originY = bullet.y;
-        bullet.angle = finalAngle;
+        bullet.originX = bullet.x; bullet.originY = bullet.y; bullet.angle = finalAngle;
 
-        // Apply Trajectory Behavior based on upgrades
-        if (s.upgradeStacks.get('sineWave')) {
-             bullet.behavior = 'SINE';
-             bullet.behaviorParams = { amp: 5, freq: 0.2, phase: 0 };
-        } else if (s.upgradeStacks.get('accel')) {
-             bullet.behavior = 'ACCEL';
-             bullet.vx *= 0.2; // Start slow
-             bullet.vy *= 0.2;
-        } else {
-             bullet.behavior = 'STRAIGHT';
-        }
-
+        if (s.upgradeStacks.get('sineWave')) { bullet.behavior = 'SINE'; bullet.behaviorParams = { amp: 5, freq: 0.2, phase: 0 }; } 
+        else if (s.upgradeStacks.get('accel')) { bullet.behavior = 'ACCEL'; bullet.vx *= 0.2; bullet.vy *= 0.2; } 
+        else { bullet.behavior = 'STRAIGHT'; }
         s.bullets.push(bullet);
       };
 
@@ -444,7 +418,6 @@ export function updateGame(s: GameState, callbacks: GameCallbacks) {
 
     // UPDATE ENTITIES
     for (let i = s.enemies.length - 1; i >= 0; i--) {
-      // ... [Enemy Update Logic Omitted - Assumed same as previous] ...
       const e = s.enemies[i];
       if (!e.active || e.dead) continue;
       if (Math.abs(e.vx) > 0.1 || Math.abs(e.vy) > 0.1) { s.visualGrid.addVelocity(e.x, e.y, e.vx * 0.5, e.vy * 0.5); }
@@ -453,7 +426,6 @@ export function updateGame(s: GameState, callbacks: GameCallbacks) {
       const toPlayerAng = Math.atan2(p.y - e.y, p.x - e.x);
       const distToPlayer = Utils.dist(e.x, e.y, p.x, p.y);
 
-      // (Affix and movement logic here same as before...)
       if (e.isElite && e.affixes.length > 0) {
           e.affixTimer++;
           for (const affix of e.affixes) {
@@ -464,20 +436,13 @@ export function updateGame(s: GameState, callbacks: GameCallbacks) {
           }
       }
       
-      // Basic movement
       if (e.type === 'kamikaze') {
-        if (e.phase === 0) { 
-            e.rotation = toPlayerAng; e.vx += Math.cos(toPlayerAng) * 0.4; e.vy += Math.sin(toPlayerAng) * 0.4;
-            if (distToPlayer < CONFIG.ENEMIES.KAMIKAZE.detectRange) { e.phase = 1; e.attackTimer = 0; callbacks.playSound('charge'); }
-        } else if (e.phase === 1) { 
-            e.vx *= 0.85; e.vy *= 0.85; e.attackTimer++; e.hitFlash = Math.floor(e.attackTimer / 4) % 2 === 0 ? 1 : 0; 
-            if (e.attackTimer > 45) { e.dead = true; callbacks.playSound('explosion'); createExplosion(s, e.x, e.y, '#ff4400', 30, 2); createShockwave(s, e.x, e.y, 180, '#ffaa00', 8); s.shake = 15; if (distToPlayer < 120 && p.invuln <= 0) { p.hp -= 35; p.invuln = 45; p.hitFlash = 10; callbacks.playSound('hit'); } }
-        }
+        if (e.phase === 0) { e.rotation = toPlayerAng; e.vx += Math.cos(toPlayerAng) * 0.4; e.vy += Math.sin(toPlayerAng) * 0.4; if (distToPlayer < CONFIG.ENEMIES.KAMIKAZE.detectRange) { e.phase = 1; e.attackTimer = 0; callbacks.playSound('charge'); } } 
+        else if (e.phase === 1) { e.vx *= 0.85; e.vy *= 0.85; e.attackTimer++; e.hitFlash = Math.floor(e.attackTimer / 4) % 2 === 0 ? 1 : 0; if (e.attackTimer > 45) { e.dead = true; callbacks.playSound('explosion'); createExplosion(s, e.x, e.y, '#ff4400', 30, 2); createShockwave(s, e.x, e.y, 180, '#ffaa00', 8); s.shake = 15; if (distToPlayer < 120 && p.invuln <= 0) { p.hp -= 35; p.invuln = 45; p.hitFlash = 10; callbacks.playSound('hit'); } } }
       } else if (e.type === 'turret') {
          e.rotation += 0.01; if (distToPlayer > 400) { e.vx += Math.cos(toPlayerAng) * 0.05; e.vy += Math.sin(toPlayerAng) * 0.05; } else { e.vx *= 0.9; e.vy *= 0.9; }
          e.shootTimer++; if (e.shootTimer >= CONFIG.ENEMIES.TURRET.shootInterval) { e.shootTimer = 0; callbacks.playSound('shoot'); for(let k=0; k<4; k++) { const proj = s.pools.enemies.acquire(); if(proj) { const ang = e.rotation + (Math.PI/2) * k; proj.id = Utils.uid('t_shot'); proj.x = e.x; proj.y = e.y; proj.vx = Math.cos(ang) * 4; proj.vy = Math.sin(ang) * 4; proj.type = 'projectile'; proj.size = 6; proj.color = '#00ffff'; proj.life = 120; proj.hp = 1; proj.active = true; s.enemies.push(proj); } } }
       } else if (e.type === 'boss') {
-         // ... boss logic ...
          e.attackTimer++; if (e.y < 150) e.y += 1.5; const phase = Math.floor(e.attackTimer / 300) % 3;
          if (phase === 0) { if (e.attackTimer % 8 === 0) { if (e.attackTimer % 32 === 0) callbacks.playSound('shoot'); const angle = e.attackTimer * 0.08; for (let k = 0; k < 3; k++) { const proj = s.pools.enemies.acquire(); if (proj) { const fa = angle + (Math.PI * 2 / 3) * k; proj.id = Utils.uid('bp'); proj.x = e.x; proj.y = e.y; proj.vx = Math.cos(fa) * 4; proj.vy = Math.sin(fa) * 4; proj.type = 'projectile'; proj.size = 6; proj.color = '#ff0000'; proj.life = 200; proj.hp = 1; proj.active = true; s.enemies.push(proj); } } } } 
          else if (phase === 1) { if (e.attackTimer % 120 === 0) { const ang = Math.atan2(p.y - e.y, p.x - e.x); e.vx = Math.cos(ang) * 12; e.vy = Math.sin(ang) * 12; callbacks.playSound('charge'); } } 
@@ -488,7 +453,6 @@ export function updateGame(s: GameState, callbacks: GameCallbacks) {
       else { const accel = e.type === 'tank' ? 0.15 : 0.2; e.vx += Math.cos(toPlayerAng) * accel; e.vy += Math.sin(toPlayerAng) * accel; if (s.quality !== 'LOW') { const nearby = s.spatialGrid.queryRadius(e.x, e.y, e.size * 3); for (const other of nearby) { if (other.id !== e.id && other.type !== 'projectile' && other.active) { const d = Utils.dist(e.x, e.y, other.x, other.y); if (d < e.size * 2 && d > 0) { const pa = Math.atan2(e.y - other.y, e.x - other.x); e.vx += Math.cos(pa) * 0.3; e.vy += Math.sin(pa) * 0.3; } } } } const spd = Math.hypot(e.vx, e.vy); if (spd > e.speed) { e.vx = (e.vx / spd) * e.speed; e.vy = (e.vy / spd) * e.speed; } e.x += e.vx * s.timeScale; e.y += e.vy * s.timeScale; }
       if (e.type !== 'boss') { const spd = Math.hypot(e.vx, e.vy); if (spd > e.speed) { e.vx = (e.vx / spd) * e.speed; e.vy = (e.vy / spd) * e.speed; } e.x += e.vx * s.timeScale; e.y += e.vy * s.timeScale; }
 
-      // Collision
       if (p.invuln <= 0 && Utils.dist(e.x, e.y, p.x, p.y) < e.size + CONFIG.PLAYER.COLLISION_RADIUS) { const damage = e.type === 'boss' ? 40 : 15; s.player.hp -= damage; s.shake = 15; s.player.invuln = CONFIG.PLAYER.INVULN_ON_HIT; s.player.hitFlash = 10; s.combo = 0; s.comboTimer = 0; callbacks.playSound('hit'); createShockwave(s, s.player.x, s.player.y, 100, '#ff0000', 10); if (s.player.hp <= 0) { s.gameOver = true; callbacks.playSound('gameover'); const runData = { score: Math.floor(s.score), wave: s.wave, level: s.player.level, duration: s.runDuration, upgrades: Array.from(s.upgradeStacks.entries()).map(([id, count]) => ({ id, count })), weapon: s.player.weapon }; callbacks.onGameOver(runData); } }
     }
     
@@ -496,43 +460,97 @@ export function updateGame(s: GameState, callbacks: GameCallbacks) {
     for (let i = s.enemies.length - 1; i >= 0; i--) { const e = s.enemies[i]; if (e.dead || !e.active) { s.pools.enemies.release(e); s.enemies.splice(i, 1); } }
     for(let i=s.pickups.length-1; i>=0; i--) { const pick = s.pickups[i]; const dist = Utils.dist(pick.x, pick.y, p.x, p.y); if (dist < 150) { pick.x += (p.x - pick.x) * 0.05; pick.y += (p.y - pick.y) * 0.05; } if (dist < 30) { if(pick.type === 'heal') { p.hp = Math.min(p.maxHp, p.hp + CONFIG.PICKUPS.HEAL_AMOUNT); createFloatingText(s, p.x, p.y, `+${CONFIG.PICKUPS.HEAL_AMOUNT} HP`, '#00ff00', 20); callbacks.playSound('pickup'); } s.pools.pickups.release(pick); s.pickups.splice(i, 1); } else { pick.life--; if(pick.life <= 0) { s.pools.pickups.release(pick); s.pickups.splice(i, 1); } } }
     
-    // BALLISTICS UPDATE LOOP
+    // 2. PHYSICS UPGRADE: BALLISTICS UPDATE WITH CCD
     for (let bi = s.bullets.length - 1; bi >= 0; bi--) { 
         const b = s.bullets[bi]; if (!b.active) continue;
         s.visualGrid.addVelocity(b.x, b.y, b.vx * 0.3, b.vy * 0.3);
         
+        // Store previous position for Raycasting
+        const prevX = b.x;
+        const prevY = b.y;
+
         // PARAMETRIC PHYSICS
         if (b.behavior === 'SINE') {
-             // Sine Wave: Add perpendicular force
              const t = (b.maxLife - b.life) * 0.2; // normalized time
              const perpAngle = b.angle + Math.PI / 2;
-             const offset = Math.sin(t) * 10; // Amplitude
+             const offset = Math.sin(t) * 10;
              b.x += b.vx * s.timeScale + Math.cos(perpAngle) * Math.cos(t) * 5 * s.timeScale;
              b.y += b.vy * s.timeScale + Math.sin(perpAngle) * Math.cos(t) * 5 * s.timeScale;
         } 
         else if (b.behavior === 'ACCEL') {
-             // Exponential Acceleration
              b.vx *= 1.05; b.vy *= 1.05;
              b.x += b.vx * s.timeScale; b.y += b.vy * s.timeScale;
         } 
         else {
-             // Standard Linear
              b.x += b.vx * s.timeScale; b.y += b.vy * s.timeScale;
         }
 
-        if (b.homing > 0 && s.quality !== 'LOW') { let target = null, minD = 400; const nearby = s.spatialGrid.queryRadius(b.x, b.y, 400); for (const e of nearby) { if (e.type === 'projectile' || !e.active) continue; const d = Utils.dist(b.x, b.y, e.x, e.y); if (d < minD) { minD = d; target = e; } } if (target) { const wantAng = Math.atan2(target.y - b.y, target.x - b.x); const currAng = Math.atan2(b.vy, b.vx); const diff = Utils.angleDiff(currAng, wantAng); const newAng = currAng + diff * b.homing; const spd = Math.hypot(b.vx, b.vy); b.vx = Math.cos(newAng) * spd; b.vy = Math.sin(newAng) * spd; b.angle = newAng; } } 
+        if (b.homing > 0 && s.quality !== 'LOW') { 
+            let target = null, minD = 400; const nearby = s.spatialGrid.queryRadius(b.x, b.y, 400); 
+            for (const e of nearby) { if (e.type === 'projectile' || !e.active) continue; const d = Utils.dist(b.x, b.y, e.x, e.y); if (d < minD) { minD = d; target = e; } } 
+            if (target) { 
+                const wantAng = Math.atan2(target.y - b.y, target.x - b.x); 
+                const currAng = Math.atan2(b.vy, b.vx); 
+                const diff = Utils.angleDiff(currAng, wantAng); 
+                const newAng = currAng + diff * b.homing; 
+                const spd = Math.hypot(b.vx, b.vy); 
+                b.vx = Math.cos(newAng) * spd; b.vy = Math.sin(newAng) * spd; b.angle = newAng; 
+            } 
+        } 
         b.life--; if (b.life <= 0 || !Utils.inBounds(b.x, b.y, s.width, s.height, 50)) { s.pools.bullets.release(b); s.bullets.splice(bi, 1); continue; } 
         
-        const candidates = s.spatialGrid.queryRadius(b.x, b.y, 50); let hitEnemy = false; 
+        // 3. CONTINUOUS COLLISION DETECTION (CCD)
+        // Instead of checking if point B is inside E, we check if segment PrevB->B intersects Circle E
+        // This prevents high speed projectiles from "tunneling" through enemies.
+        
+        // Broadphase: Expanded radius to account for bullet travel
+        const travelDist = Math.hypot(b.x - prevX, b.y - prevY);
+        const searchRadius = Math.max(50, travelDist + 20);
+        const candidates = s.spatialGrid.queryRadius(b.x, b.y, searchRadius); 
+        
+        let hitEnemy = false; 
+        
         for (const e of candidates) { 
             if (e.type === 'projectile' || e.dead || !e.active) continue; 
-            if (Utils.dist(b.x, b.y, e.x, e.y) < e.size + b.size) { 
-                e.hp -= b.dmg; e.hitFlash = 3; createExplosion(s, b.x, b.y, b.color, 3, 0.5); createFloatingText(s, e.x, e.y - 20, Math.floor(b.dmg).toString(), b.color, 14); 
+            
+            let isHit = false;
+            const collisionRadius = e.size + b.size;
+            const distSq = (b.x - e.x)**2 + (b.y - e.y)**2;
+            
+            // Fast check: Standard overlap
+            if (distSq < collisionRadius**2) {
+                isHit = true;
+            } 
+            // CCD check: Only if bullet moved fast enough to skip radius
+            else if (travelDist > e.size) {
+                 // Project Circle Center onto Line Segment
+                 const dx = b.x - prevX;
+                 const dy = b.y - prevY;
+                 const t = ((e.x - prevX) * dx + (e.y - prevY) * dy) / (dx*dx + dy*dy);
+                 const clampedT = Math.max(0, Math.min(1, t));
+                 const closestX = prevX + clampedT * dx;
+                 const closestY = prevY + clampedT * dy;
+                 const closestDistSq = (e.x - closestX)**2 + (e.y - closestY)**2;
+                 
+                 if (closestDistSq < collisionRadius**2) {
+                     isHit = true;
+                     // Move bullet to impact point visually
+                     b.x = closestX;
+                     b.y = closestY;
+                 }
+            }
+
+            if (isHit) { 
+                e.hp -= b.dmg; e.hitFlash = 3; 
+                createExplosion(s, b.x, b.y, b.color, 3, 0.5); 
+                createFloatingText(s, e.x, e.y - 20, Math.floor(b.dmg).toString(), b.color, 14); 
+                
                 if (b.pierce <= 0) hitEnemy = true; else b.pierce--; 
+                
                 if (e.hp <= 0 && !e.dead) { 
                     e.dead = true; s.waveKills++; s.combo++; s.comboTimer = CONFIG.PROGRESSION.COMBO_DURATION; s.overdrive = Math.min(100, s.overdrive + (e.isElite ? 15 : 4)); 
-                    const comboBonus = 1 + s.combo * CONFIG.PROGRESSION.COMBO_BONUS; s.score += e.score * comboBonus; createGem(s, e.x, e.y, e.xp); callbacks.playSound('explosion'); 
-                    // FRACTURE PHYSICS DEBRIS
+                    const comboBonus = 1 + s.combo * CONFIG.PROGRESSION.COMBO_BONUS; s.score += e.score * comboBonus; 
+                    createGem(s, e.x, e.y, e.xp); callbacks.playSound('explosion'); 
                     createDebris(s, e.x, e.y, e.color, e.isElite ? 20 : 12, e.isElite ? 2 : 1.2); 
                     if (s.visualGrid) s.visualGrid.applyForce(e.x, e.y, e.size * 4, 30);
                     
@@ -546,7 +564,6 @@ export function updateGame(s: GameState, callbacks: GameCallbacks) {
         if (hitEnemy) { s.pools.bullets.release(b); s.bullets.splice(bi, 1); } 
     }
     
-    // ... [Rest of loop update logic] ...
     for (let i = s.gems.length - 1; i >= 0; i--) { const g = s.gems[i]; if (!g.active) continue; const d = Utils.dist(g.x, g.y, p.x, p.y); if (d < p.stats.magnetRange) { g.vx += (p.x - g.x) * CONFIG.GEMS.PULL_STRENGTH; g.vy += (p.y - g.y) * CONFIG.GEMS.PULL_STRENGTH; } g.x += g.vx; g.y += g.vy; g.vx *= CONFIG.GEMS.FRICTION; g.vy *= CONFIG.GEMS.FRICTION; g.life--; if (d < CONFIG.GEMS.COLLECT_RADIUS) { p.xp += g.val; if (p.xp >= p.xpToNext) { p.xp -= p.xpToNext; p.level++; p.xpToNext = Math.floor(p.xpToNext * CONFIG.PROGRESSION.XP_SCALE); s.paused = true; callbacks.playSound('levelup'); const pool: UpgradeOption[] = []; UPGRADES.forEach(u => { const current = s.upgradeStacks.get(u.id) || 0; if (current < u.maxStack) { const weight = Math.max(0.1, u.weight - current * 0.1); for (let k = 0; k < weight * 10; k++) pool.push({ ...u, currentStack: current }); } }); const options: UpgradeOption[] = []; if (pool.length > 0) { while (options.length < 3 && pool.length > 0) { const idx = Math.floor(Math.random() * pool.length); const pick = pool[idx]; if (!options.find(o => o.id === pick.id)) options.push(pick); for (let z = pool.length - 1; z >= 0; z--) if (pool[z].id === pick.id) pool.splice(z, 1); } callbacks.onLevelUp(options); } else { s.paused = false; } } s.pools.gems.release(g); s.gems.splice(i, 1); } else if (g.life <= 0) { s.pools.gems.release(g); s.gems.splice(i, 1); } }
     for (let i = s.particles.length - 1; i >= 0; i--) { const part = s.particles[i]; if (!part.active) continue; part.x += part.vx * s.timeScale; part.y += part.vy * s.timeScale; part.vx *= part.friction; part.vy *= part.friction; part.life -= s.timeScale; if (part.type === 'shard' || part.type === 'poly') { part.rotation += part.rotationSpeed * s.timeScale; part.rotationSpeed *= 0.98; } if (part.life <= 0) { s.pools.particles.release(part); s.particles.splice(i, 1); } }
     for (let i = s.shockwaves.length - 1; i >= 0; i--) { const sw = s.shockwaves[i]; sw.size += sw.speed * s.timeScale; sw.alpha -= 0.03 * s.timeScale; if (sw.alpha <= 0) s.shockwaves.splice(i, 1); }
