@@ -162,6 +162,23 @@ const renderBloomPass = (mainCtx: CanvasRenderingContext2D, s: GameState) => {
         }
     }
 
+    // MPM Matter (Hyper-Elastic Glow)
+    if (s.mpmSystem) {
+        const m = s.mpmSystem;
+        for (let i = 0; i < m.count; i++) {
+            // Visualize Stress (J - 1)
+            const J = m.F00[i] * m.F11[i] - m.F01[i] * m.F10[i];
+            const stress = Math.abs(J - 1.0);
+
+            if (stress > 0.1) { // Only glow if stressed
+                const r = m.colorR[i]; const g = m.colorG[i]; const b = m.colorB[i];
+                ctx.fillStyle = `rgb(${r},${g},${b})`;
+                ctx.globalAlpha = Math.min(1.0, stress * 2.0); // Glow intensity proportional to stress
+                ctx.beginPath(); ctx.arc(m.x[i], m.y[i], 4, 0, Math.PI * 2); ctx.fill();
+            }
+        }
+    }
+
     ctx.restore();
 
     // 3. Composite Bloom back to Main (Screen/Additive)
@@ -374,6 +391,29 @@ export const renderGame = (ctx: CanvasRenderingContext2D, s: GameState) => {
 
     // --- PASS 6: GLOW / PARTICLES / BULLETS ---
     ctx.globalCompositeOperation = 'lighter';
+
+    // MPM Matter (Hyperbolic Canvas)
+    if (s.mpmSystem) {
+        const m = s.mpmSystem;
+        for (let i = 0; i < m.count; i++) {
+            const J = m.F00[i] * m.F11[i] - m.F01[i] * m.F10[i];
+            const stress = Math.abs(J - 1.0);
+            const r = m.colorR[i]; const g = m.colorG[i]; const b = m.colorB[i];
+
+            // Thermal Emission Logic: High compression/tension = White Hot
+            if (stress > 0.5) {
+                ctx.fillStyle = '#ffffff';
+                ctx.globalAlpha = Math.min(1, (stress - 0.5));
+                ctx.beginPath(); ctx.arc(m.x[i], m.y[i], 2, 0, Math.PI * 2); ctx.fill();
+            }
+
+            ctx.fillStyle = `rgb(${r},${g},${b})`;
+            ctx.globalAlpha = 1.0;
+            // Draw slightly larger when stressed
+            const size = 2 + Math.min(3, stress * 5);
+            ctx.beginPath(); ctx.arc(m.x[i], m.y[i], size, 0, Math.PI * 2); ctx.fill();
+        }
+    }
 
     // Particles (Render from System)
     if (s.particleSystem) {

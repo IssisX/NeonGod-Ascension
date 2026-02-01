@@ -6,6 +6,7 @@ import { updateEnemyAI, AIContext } from './ai';
 import { Director } from './director';
 import { Physics } from './physics';
 import { ParticleSystem } from './particles';
+import { MPMSystem } from './mpm';
 
 // --- POOLS & FACTORIES ---
 export const Factories = {
@@ -86,6 +87,7 @@ export function createGameState(width: number, height: number): GameState {
         spatialGrid: new SpatialGrid(CONFIG.SPATIAL.CELL_SIZE),
         visualGrid: new VisualGrid(width, height),
         particleSystem: new ParticleSystem(CONFIG.POOLS.PARTICLES.max), // Initialize new system
+        mpmSystem: new MPMSystem(width, height), // Initialize MPM System
     };
     resetPlayer(s.player, width, height);
     return s;
@@ -103,7 +105,15 @@ export const createExplosion = (s: GameState, x: number, y: number, color: strin
     }
 };
 
+const hexToRgb = (hex: string) => {
+    let c = hex.substring(1);
+    if(c.length === 3) c = c[0]+c[0]+c[1]+c[1]+c[2]+c[2];
+    const num = parseInt(c, 16);
+    return { r: (num >> 16) & 255, g: (num >> 8) & 255, b: num & 255 };
+}
+
 const createDebris = (s: GameState, x: number, y: number, color: string, size: number) => {
+    // 1. Traditional Shards (Persistent sprites)
     const count = Math.ceil(size / 5);
     for(let i=0; i<count; i++) {
         const shard = s.pools.shards.acquire();
@@ -121,6 +131,13 @@ const createDebris = (s: GameState, x: number, y: number, color: string, size: n
             shard.active = true;
             s.shards.push(shard);
         }
+    }
+
+    // 2. MPM Hyper-Elastic Matter (The Jelly)
+    if (s.mpmSystem) {
+        const rgb = hexToRgb(color);
+        // Spawn a cluster of matter particles
+        s.mpmSystem.spawnExplosion(x, y, rgb, count * 5); // Denser matter
     }
 };
 
@@ -612,6 +629,8 @@ export function updateGame(s: GameState, callbacks: GameCallbacks) {
 
     // UPDATE PARTICLE SYSTEM (New)
     if (s.particleSystem) s.particleSystem.update(s);
+    // UPDATE MPM SYSTEM (New)
+    if (s.mpmSystem) s.mpmSystem.update();
 
     for (let i = s.shockwaves.length - 1; i >= 0; i--) { const sw = s.shockwaves[i]; sw.size += sw.speed * s.timeScale; sw.alpha -= 0.03 * s.timeScale; if (sw.alpha <= 0) s.shockwaves.splice(i, 1); }
     for (const o of s.orbitals) { o.angle += 0.05; const ox = p.x + Math.cos(o.angle) * o.dist; const oy = p.y + Math.sin(o.angle) * o.dist; for (const e of s.enemies) { if (e.type === 'projectile' || e.dead || !e.active) continue; if (Utils.dist(ox, oy, e.x, e.y) < e.size + 10) { e.hp -= 2; e.hitFlash = 2; createExplosion(s, e.x, e.y, '#00ffff', 1, 0.5); } } }

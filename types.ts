@@ -216,6 +216,7 @@ export interface GameState {
   spatialGrid: any;
   visualGrid: any;
   particleSystem: any; // NEW
+  mpmSystem: any; // NEW: Material Point Method System
 }
 
 export interface UpgradeOption {
