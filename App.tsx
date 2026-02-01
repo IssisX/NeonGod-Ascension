@@ -286,6 +286,9 @@ export default function App() {
           } else {
               const type = t.clientX < s.width / 2 ? 'move' : 'aim';
               s.touches[t.identifier] = { id: t.identifier, originX: t.clientX, originY: t.clientY, x: t.clientX, y: t.clientY, type };
+
+              // NEW: Pass to Input System
+              if (s.inputSystem) s.inputSystem.handleTouchStart(t.identifier, t.clientX * s.pixelRatio, t.clientY * s.pixelRatio);
           }
         } else if (e.type === 'touchmove') {
           const touch = s.touches[t.identifier];
@@ -303,7 +306,11 @@ export default function App() {
               touch.y = t.clientY;
             }
           }
+          // NEW: Pass to Input System
+          if (s.inputSystem) s.inputSystem.handleTouchMove(t.identifier, t.clientX * s.pixelRatio, t.clientY * s.pixelRatio);
         } else {
+          // NEW: Pass to Input System
+          if (s.inputSystem) s.inputSystem.handleTouchEnd(t.identifier, t.clientX * s.pixelRatio, t.clientY * s.pixelRatio);
           delete s.touches[t.identifier];
         }
       }

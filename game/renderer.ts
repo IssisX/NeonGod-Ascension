@@ -627,6 +627,29 @@ export const renderGame = (ctx: CanvasRenderingContext2D, s: GameState) => {
     }
     ctx.globalAlpha = 1;
 
+    // Runic Trails (Gestures)
+    if (s.inputSystem && s.inputSystem.trails) {
+        ctx.lineCap = 'round';
+        ctx.lineJoin = 'round';
+        for (const trail of s.inputSystem.trails) {
+            if (trail.points.length < 2) continue;
+            ctx.beginPath();
+            ctx.moveTo(trail.points[0].x, trail.points[0].y);
+            for (let i=1; i<trail.points.length; i++) {
+                ctx.lineTo(trail.points[i].x, trail.points[i].y);
+            }
+            ctx.strokeStyle = trail.color;
+            ctx.lineWidth = 4 * (trail.life / 20);
+            ctx.globalAlpha = trail.life / 20;
+            // Glow effect
+            ctx.shadowBlur = 10;
+            ctx.shadowColor = trail.color;
+            ctx.stroke();
+            ctx.shadowBlur = 0;
+        }
+        ctx.globalAlpha = 1.0;
+    }
+
     ctx.restore();
 
     // Cinematic Flash

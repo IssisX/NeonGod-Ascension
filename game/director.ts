@@ -62,6 +62,10 @@ const Formations = {
 
 // --- DIRECTOR AI ---
 export const Director = {
+    // Stats for Darwinian Forge
+    damageLog: { kinetic: 0, thermal: 0, void: 0 },
+    mutationProfile: 'NONE' as 'NONE' | 'ARMORED' | 'PHASE' | 'SWARM',
+
     /**
      * The Brain of the operation.
      * Decides *when*, *what*, and *how* to spawn enemies based on dramatic pacing.
@@ -84,11 +88,28 @@ export const Director = {
         // Effective Threat Level (0.0 - 1.0)
         const threatLevel = Math.min(1, baseIntensity * 0.7 + stress * 0.3 + (s.wave * 0.05));
 
+        // 2.5 Darwinian Analysis (Every 10 seconds)
+        if (s.frame % 600 === 0) {
+            const log = Director.damageLog;
+            const total = log.kinetic + log.thermal + log.void;
+            if (total > 200) { // Threshold to adapt
+                if (log.kinetic > log.thermal && log.kinetic > log.void) Director.mutationProfile = 'ARMORED';
+                else if (log.thermal > log.kinetic && log.thermal > log.void) Director.mutationProfile = 'PHASE';
+                else if (log.void > log.kinetic && log.void > log.thermal) Director.mutationProfile = 'SWARM';
+
+                // Decay stats to allow shifting meta
+                log.kinetic *= 0.1; log.thermal *= 0.1; log.void *= 0.1;
+            }
+        }
+
         // 3. Check Quotas
         // Dynamically adjust spawn rate based on threat
         // High threat = Faster spawns (Chaos)
         // Low threat = Slower spawns (Buildup)
-        const currentRate = Math.max(10, Utils.lerp(120, 30, threatLevel));
+        let rateMod = 1.0;
+        if (Director.mutationProfile === 'SWARM') rateMod = 0.5; // Swarm spawns twice as fast
+
+        const currentRate = Math.max(5, Utils.lerp(120, 30, threatLevel) * rateMod);
 
         s.spawnTimer++;
         if (s.spawnTimer > currentRate) {
@@ -104,6 +125,11 @@ export const Director = {
             if (s.wave >= 3 && roll > 0.85) type = 'tank';
             if (s.wave >= 4 && roll > 0.6 && roll < 0.7) type = 'shooter';
             if (s.wave >= 5 && roll > 0.4 && roll < 0.5) type = 'turret';
+
+            // Apply Mutation Bias
+            if (Director.mutationProfile === 'ARMORED' && Math.random() < 0.4) type = 'tank';
+            if (Director.mutationProfile === 'PHASE' && Math.random() < 0.4) type = 'chaser'; // Fast
+            if (Director.mutationProfile === 'SWARM' && Math.random() < 0.6) type = 'kamikaze';
 
             // Elite Chance
             const isElite = Math.random() < (0.05 + s.wave * 0.01) && activeEnemies < 50;

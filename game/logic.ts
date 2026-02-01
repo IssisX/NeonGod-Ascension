@@ -8,6 +8,7 @@ import { Physics } from './physics';
 import { ParticleSystem } from './particles';
 import { MPMSystem } from './mpm';
 import { SpringCamera } from './camera';
+import { InputSystem } from './input';
 
 // --- POOLS & FACTORIES ---
 export const Factories = {
@@ -90,6 +91,7 @@ export function createGameState(width: number, height: number): GameState {
         particleSystem: new ParticleSystem(CONFIG.POOLS.PARTICLES.max), // Initialize new system
         mpmSystem: new MPMSystem(width, height), // Initialize MPM System
         camera: new SpringCamera(), // Initialize Camera
+        inputSystem: new InputSystem(), // Initialize Input System
     };
     resetPlayer(s.player, width, height);
     return s;
@@ -142,6 +144,9 @@ const createDebris = (s: GameState, x: number, y: number, color: string, size: n
         // Spawn a cluster of matter particles
         s.mpmSystem.spawnExplosion(x, y, rgb, count * 5); // Denser matter
     }
+
+    // Log Thermal Damage (Explosions count as Thermal)
+    Director.damageLog.thermal += 10;
 };
 
 export const createEvolutionEffect = (s: GameState, x: number, y: number, color: string) => {
@@ -325,6 +330,10 @@ export function updateGame(s: GameState, callbacks: GameCallbacks) {
             const ang = Math.atan2(dy, dx);
             const dist = Math.min(50, Utils.dist(0, 0, dx, dy)) / 50;
             mx += Math.cos(ang) * dist; my += Math.sin(ang) * dist;
+          }
+          // Pass raw touches to InputSystem for Gesture Analysis
+          if (s.inputSystem) {
+              if (s.frame % 2 === 0) s.inputSystem.handleTouchMove(t.id, t.x, t.y); // Sample rate
           }
         });
         const mag = Math.hypot(mx, my);
@@ -607,7 +616,18 @@ export function updateGame(s: GameState, callbacks: GameCallbacks) {
         for (const e of candidates) { 
             if (e.type === 'projectile' || e.dead || !e.active) continue; 
             if (Utils.dist(b.x, b.y, e.x, e.y) < e.size + b.size) { 
-                e.hp -= b.dmg; e.hitFlash = 3; createExplosion(s, b.x, b.y, b.color, 3, 0.5); createFloatingText(s, e.x, e.y - 20, Math.floor(b.dmg).toString(), b.color, 14); 
+                // Damage Calculation & Darwinian Logging
+                let dmg = b.dmg;
+
+                // Track Damage Source
+                if (s.player.weapon === 'VOID') Director.damageLog.void += dmg;
+                else if (s.player.weapon === 'RAILGUN') Director.damageLog.kinetic += dmg * 2; // Rail is heavy kinetic
+                else Director.damageLog.kinetic += dmg;
+
+                e.hp -= dmg; e.hitFlash = 3;
+                createExplosion(s, b.x, b.y, b.color, 3, 0.5);
+                createFloatingText(s, e.x, e.y - 20, Math.floor(dmg).toString(), b.color, 14);
+
                 if (b.pierce <= 0) hitEnemy = true; else b.pierce--; 
                 if (e.hp <= 0 && !e.dead) { 
                     e.dead = true; s.waveKills++; s.combo++; s.comboTimer = CONFIG.PROGRESSION.COMBO_DURATION; s.overdrive = Math.min(100, s.overdrive + (e.isElite ? 15 : 4)); 
@@ -662,6 +682,8 @@ export function updateGame(s: GameState, callbacks: GameCallbacks) {
     if (s.particleSystem) s.particleSystem.update(s);
     // UPDATE MPM SYSTEM (New)
     if (s.mpmSystem) s.mpmSystem.update();
+    // UPDATE INPUT SYSTEM (Gestures)
+    if (s.inputSystem) s.inputSystem.update(s);
 
     for (let i = s.shockwaves.length - 1; i >= 0; i--) { const sw = s.shockwaves[i]; sw.size += sw.speed * s.timeScale; sw.alpha -= 0.03 * s.timeScale; if (sw.alpha <= 0) s.shockwaves.splice(i, 1); }
     for (const o of s.orbitals) { o.angle += 0.05; const ox = p.x + Math.cos(o.angle) * o.dist; const oy = p.y + Math.sin(o.angle) * o.dist; for (const e of s.enemies) { if (e.type === 'projectile' || e.dead || !e.active) continue; if (Utils.dist(ox, oy, e.x, e.y) < e.size + 10) { e.hp -= 2; e.hitFlash = 2; createExplosion(s, e.x, e.y, '#00ffff', 1, 0.5); } } }
