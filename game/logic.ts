@@ -3,6 +3,7 @@ import { GameState, Player, UpgradeOption, RunData, Enemy, Bullet, Particle, Sha
 import { Utils } from '../utils';
 import { SpatialGrid, VisualGrid } from './grids';
 import { updateEnemyAI, AIContext } from './ai';
+import { Director } from './director';
 
 // --- POOLS & FACTORIES ---
 export const Factories = {
@@ -592,7 +593,7 @@ export function updateGame(s: GameState, callbacks: GameCallbacks) {
     for (const o of s.orbitals) { o.angle += 0.05; const ox = p.x + Math.cos(o.angle) * o.dist; const oy = p.y + Math.sin(o.angle) * o.dist; for (const e of s.enemies) { if (e.type === 'projectile' || e.dead || !e.active) continue; if (Utils.dist(ox, oy, e.x, e.y) < e.size + 10) { e.hp -= 2; e.hitFlash = 2; createExplosion(s, e.x, e.y, '#00ffff', 1, 0.5); } } }
     for (let i = s.texts.length - 1; i >= 0; i--) { const t = s.texts[i]; t.x += t.vx * s.timeScale; t.y += t.vy * s.timeScale; t.vy += 0.1 * s.timeScale; t.life -= s.timeScale; if (t.life <= 0) s.texts.splice(i, 1); }
     
-    // ... [Spawn logic remains the same] ...
+    // --- DIRECTOR AI (SPAWNING) ---
     if (!s.bossActive) {
         const waveComplete = s.waveKills >= s.waveQuota;
         if (waveComplete) {
@@ -621,49 +622,38 @@ export function updateGame(s: GameState, callbacks: GameCallbacks) {
                 }
             }
         } else {
-            s.spawnTimer++;
-            if (s.spawnTimer > s.spawnRate && s.enemies.length < CONFIG.SPAWNING.MAX_ENEMIES) {
-                const count = Math.min(3, 1 + Math.floor(s.wave / 5));
-                for (let k = 0; k < count; k++) {
-                    const e = s.pools.enemies.acquire(); 
-                    if (!e) continue;
-                    const pos = Utils.getSpawnPos(s.width, s.height, 100);
-                    const roll = Math.random();
-                    let typeKey = 'CHASER';
-                    if (s.wave >= 2 && roll > 0.8) typeKey = 'KAMIKAZE';
-                    else if (s.wave >= 3 && roll > 0.7 && roll <= 0.8) typeKey = 'TANK';
-                    else if (s.wave >= 4 && roll > 0.6 && roll <= 0.7) typeKey = 'TURRET';
-                    else if (s.wave >= 5 && roll > 0.4 && roll <= 0.6) typeKey = 'SHOOTER';
-                    
-                    const cfg = CONFIG.ENEMIES[typeKey];
-                    const eliteChance = Math.min(CONFIG.ELITE.MAX_CHANCE, s.wave * CONFIG.ELITE.CHANCE_PER_WAVE);
-                    const isElite = Math.random() < eliteChance;
-                    const hp = cfg.hp + s.wave * cfg.hpScale;
-                    const speed = cfg.speed + s.wave * cfg.speedScale;
-                    
-                    e.id = Utils.uid('e'); e.x = pos.x; e.y = pos.y; e.vx = 0; e.vy = 0;
-                    e.hp = isElite ? hp * CONFIG.ELITE.HP_MULT : hp; e.maxHp = e.hp;
-                    e.type = typeKey.toLowerCase();
-                    e.speed = isElite ? speed * CONFIG.ELITE.SPEED_MULT : speed;
-                    e.size = isElite ? cfg.size * CONFIG.ELITE.SIZE_MULT : cfg.size;
-                    e.color = isElite ? CONFIG.ELITE.COLOR : cfg.color; e.isElite = isElite;
-                    e.xp = isElite ? cfg.xp * CONFIG.ELITE.XP_MULT : cfg.xp;
-                    e.score = isElite ? cfg.score * CONFIG.ELITE.SCORE_MULT : cfg.score;
-                    e.shootTimer = 0; e.active = true; e.dead = false; e.phase = 0; e.hitFlash = 0;
-                    e.affixes = []; e.affixTimer = 0; e.spawnAnim = 0;
+            // DELEGATE TO DIRECTOR
+            Director.update(s, (x, y, type, isElite) => {
+                const e = s.pools.enemies.acquire();
+                if (!e) return;
 
-                    if (isElite && s.wave >= 3) {
-                        const affixRoll = Math.random();
-                        if (affixRoll < 0.2) e.affixes.push('VORTEX');
-                        else if (affixRoll < 0.4) e.affixes.push('REPULSOR');
-                        else if (affixRoll < 0.6) e.affixes.push('SPLITTER');
-                        else if (affixRoll < 0.8) e.affixes.push('WARP');
-                        else e.affixes.push('REGEN');
-                    }
-                    s.enemies.push(e);
+                const typeKey = type.toUpperCase();
+                const cfg = CONFIG.ENEMIES[typeKey] || CONFIG.ENEMIES.CHASER;
+
+                const hp = cfg.hp + s.wave * cfg.hpScale;
+                const speed = cfg.speed + s.wave * cfg.speedScale;
+
+                e.id = Utils.uid('e'); e.x = x; e.y = y; e.vx = 0; e.vy = 0;
+                e.hp = isElite ? hp * CONFIG.ELITE.HP_MULT : hp; e.maxHp = e.hp;
+                e.type = type.toLowerCase();
+                e.speed = isElite ? speed * CONFIG.ELITE.SPEED_MULT : speed;
+                e.size = isElite ? cfg.size * CONFIG.ELITE.SIZE_MULT : cfg.size;
+                e.color = isElite ? CONFIG.ELITE.COLOR : cfg.color; e.isElite = isElite;
+                e.xp = isElite ? cfg.xp * CONFIG.ELITE.XP_MULT : cfg.xp;
+                e.score = isElite ? cfg.score * CONFIG.ELITE.SCORE_MULT : cfg.score;
+                e.shootTimer = 0; e.active = true; e.dead = false; e.phase = 0; e.hitFlash = 0;
+                e.affixes = []; e.affixTimer = 0; e.spawnAnim = 0;
+
+                if (isElite && s.wave >= 3) {
+                    const affixRoll = Math.random();
+                    if (affixRoll < 0.2) e.affixes.push('VORTEX');
+                    else if (affixRoll < 0.4) e.affixes.push('REPULSOR');
+                    else if (affixRoll < 0.6) e.affixes.push('SPLITTER');
+                    else if (affixRoll < 0.8) e.affixes.push('WARP');
+                    else e.affixes.push('REGEN');
                 }
-                s.spawnTimer = 0;
-            }
+                s.enemies.push(e);
+            });
         }
     }
 }
