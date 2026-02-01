@@ -58,7 +58,6 @@ export const renderGame = (ctx: CanvasRenderingContext2D, s: GameState) => {
     ctx.globalAlpha = 1;
 
     // RENDER ETHER FIELD (The Dust)
-    // This replaces the old grid lines with a particle-based fluid visualization
     if (s.visualGrid) s.visualGrid.render(ctx, s.qualitySettings.gridStep);
     
     // --- PASS 2: MAIN ENTITIES ---
@@ -70,14 +69,25 @@ export const renderGame = (ctx: CanvasRenderingContext2D, s: GameState) => {
         else if (channel === 'blue') { ctx.globalCompositeOperation = 'screen'; ctx.fillStyle = '#0000ff'; ctx.strokeStyle = '#0000ff'; ctx.globalAlpha = 0.5; }
         else { ctx.globalCompositeOperation = 'source-over'; ctx.globalAlpha = 1; }
 
-        // Debris
+        // Particles & Debris
         for (const part of s.particles) {
-            if (!part.active || part.type !== 'shard') continue;
-            ctx.save(); ctx.translate(part.x + offsetX, part.y + offsetY); ctx.rotate(part.rotation);
-            if (channel === 'main') ctx.fillStyle = part.color;
-            ctx.beginPath();
-            ctx.moveTo(-part.size, -part.size/2); ctx.lineTo(part.size, 0); ctx.lineTo(-part.size, part.size/2);
-            ctx.fill(); ctx.restore();
+            if (!part.active) continue;
+            // Shard / Poly Geometry Rendering
+            if (part.type === 'poly' || part.type === 'shard') {
+                 ctx.save(); ctx.translate(part.x + offsetX, part.y + offsetY); ctx.rotate(part.rotation);
+                 if (channel === 'main') ctx.fillStyle = part.color;
+                 
+                 ctx.beginPath();
+                 if (part.polyPoints && part.polyPoints.length > 0) {
+                     ctx.moveTo(part.polyPoints[0].x, part.polyPoints[0].y);
+                     for(let i=1; i<part.polyPoints.length; i++) ctx.lineTo(part.polyPoints[i].x, part.polyPoints[i].y);
+                 } else {
+                     // Fallback for old shards
+                     ctx.moveTo(-part.size, -part.size/2); ctx.lineTo(part.size, 0); ctx.lineTo(-part.size, part.size/2);
+                 }
+                 ctx.closePath();
+                 ctx.fill(); ctx.restore();
+            }
         }
 
         // Enemies
@@ -215,9 +225,14 @@ export const renderGame = (ctx: CanvasRenderingContext2D, s: GameState) => {
             ctx.globalAlpha = 0.5;
             drawLightning(ctx, x2, y2, b.x, b.y, '#ffffff', 1, 8);
         } else {
-            // Standard Bullet
-            ctx.fillStyle = '#ffffff'; ctx.globalAlpha = 1; ctx.beginPath(); ctx.arc(b.x, b.y, b.size * 0.6, 0, Math.PI * 2); ctx.fill();
-            ctx.fillStyle = b.color; ctx.globalAlpha = 0.6; ctx.beginPath(); ctx.arc(b.x, b.y, b.size * 1.5, 0, Math.PI * 2); ctx.fill();
+            // Standard Bullet (with potential param effects)
+            const pulsate = b.behavior === 'SINE' ? (1 + Math.sin(s.frame * 0.5) * 0.3) : 1;
+            
+            ctx.fillStyle = '#ffffff'; ctx.globalAlpha = 1; 
+            ctx.beginPath(); ctx.arc(b.x, b.y, b.size * 0.6 * pulsate, 0, Math.PI * 2); ctx.fill();
+            
+            ctx.fillStyle = b.color; ctx.globalAlpha = 0.6; 
+            ctx.beginPath(); ctx.arc(b.x, b.y, b.size * 1.5 * pulsate, 0, Math.PI * 2); ctx.fill();
         }
     }
     

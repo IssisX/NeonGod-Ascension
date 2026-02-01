@@ -25,7 +25,7 @@ export const CONFIG = Object.freeze({
   },
   PLAYER: {
     BASE_HP: 200, 
-    BASE_SPEED: 1.1, // Slower movement (was 1.3)
+    BASE_SPEED: 1.1, 
     ACCELERATION: 0.88,
     DASH: { COOLDOWN: 90, SPEED: 15, INVULN_DURATION: 25 },
     COLLISION_RADIUS: 10,
@@ -38,7 +38,6 @@ export const CONFIG = Object.freeze({
     VOID: { name: "Void Ray", color: "#aa00ff", speed: 12, spread: 0.15, dmgMult: 1.3, fireDelay: 1, size: 8, pierce: 0, homing: 0.25, count: 1, lifetime: 90, type: 'orb' },
   } as Record<string, any>,
   ENEMIES: {
-    // Reduced speeds across the board to match player
     CHASER: { hp: 10, speed: 1.5, size: 15, color: "#ff0055", xp: 10, score: 100, hpScale: 2.0, speedScale: 0.03 },
     SHOOTER: { hp: 8, speed: 1.2, size: 20, color: "#be00ff", xp: 15, score: 150, hpScale: 1.8, speedScale: 0.02, shootInterval: 120 },
     TANK: { hp: 35, speed: 0.8, size: 28, color: "#00ff9d", xp: 25, score: 200, hpScale: 7, speedScale: 0.01 },
@@ -46,7 +45,6 @@ export const CONFIG = Object.freeze({
     TURRET: { hp: 45, speed: 0.4, size: 30, color: "#0088ff", xp: 40, score: 300, hpScale: 9, speedScale: 0, shootInterval: 180 },
     BOSS: { hp: 2000, speed: 1.2, size: 60, color: "#ff3333", xp: 2000, score: 5000, hpScale: 350 },
   } as Record<string, any>,
-  // AFFIX CONFIGURATION
   AFFIXES: {
     VORTEX: { range: 250, force: 0.4, color: "#bd00ff" },
     REPULSOR: { range: 180, force: 0.8, color: "#0088ff" },
@@ -56,12 +54,12 @@ export const CONFIG = Object.freeze({
   },
   ELITE: { HP_MULT: 2.5, SPEED_MULT: 1.2, SIZE_MULT: 1.3, XP_MULT: 3, SCORE_MULT: 3, COLOR: "#ffffff", CHANCE_PER_WAVE: 0.02, MAX_CHANCE: 0.3 },
   SPAWNING: { 
-    INITIAL_RATE: 110, // Slower start (was 80)
-    MIN_RATE: 35, // Slower peak (was 25)
-    RATE_DECAY: 0.99, // Slower ramp up (was 0.98)
-    MAX_ENEMIES: 75, // Fewer max enemies (was 100)
+    INITIAL_RATE: 110, 
+    MIN_RATE: 35, 
+    RATE_DECAY: 0.99, 
+    MAX_ENEMIES: 75, 
     BOSS_INTERVAL: 5,
-    INITIAL_WAVE_QUOTA: 12, // Lower initial quota (was 15)
+    INITIAL_WAVE_QUOTA: 12, 
     QUOTA_MULTIPLIER: 1.2
   },
   PROGRESSION: { XP_BASE: 100, XP_SCALE: 1.3, COMBO_DURATION: 200, COMBO_BONUS: 0.1 },
@@ -81,4 +79,7 @@ export const UPGRADES = [
   { id: "pierce", name: "Penetrator", desc: "+1 pierce", weight: 0.6, maxStack: 5 },
   { id: "homing", name: "Tracker AI", desc: "+15% homing", weight: 0.7, maxStack: 5 },
   { id: "orbital", name: "Guardian Orb", desc: "+1 orbital", weight: 0.5, maxStack: 4 },
+  // NEW SOPHISTICATED UPGRADES
+  { id: "sineWave", name: "Wave Oscillator", desc: "Bullets move in a sine wave", weight: 0.5, maxStack: 1 },
+  { id: "accel", name: "Mass Driver", desc: "Bullets accelerate over time", weight: 0.5, maxStack: 1 },
 ];

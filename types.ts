@@ -32,14 +32,22 @@ export interface Player extends Entity {
   };
 }
 
+export type BulletBehavior = 'STRAIGHT' | 'SINE' | 'ACCEL' | 'HELIX';
+
 export interface Bullet extends Entity {
   id: string;
   life: number;
+  maxLife: number; // For normalized time calculations
   color: string;
   dmg: number;
   pierce: number;
   homing: number;
   size: number;
+  behavior: BulletBehavior; // NEW: Trajectory type
+  behaviorParams: { amp?: number; freq?: number; phase?: number }; // NEW: Math params
+  originX: number; // For parametric calcs
+  originY: number;
+  angle: number;   // Base angle
 }
 
 export type EnemyAffix = 'VORTEX' | 'REPULSOR' | 'SPLITTER' | 'WARP' | 'REGEN';
@@ -73,9 +81,10 @@ export interface Particle extends Entity {
   color: string;
   size: number;
   friction: number;
-  type: 'glow' | 'shard' | 'ring' | 'text' | 'ghost'; 
+  type: 'glow' | 'shard' | 'ring' | 'text' | 'ghost' | 'poly'; // Added 'poly'
   rotation: number;     
   rotationSpeed: number; 
+  polyPoints?: {x: number, y: number}[]; // NEW: For shard geometry
 }
 
 export interface Gem extends Entity {
@@ -95,9 +104,9 @@ export interface FloatingText {
   y: number;
   text: string;
   life: number;
-  maxLife: number; // NEW
-  vx: number; // NEW: Physics velocity X
-  vy: number; // NEW: Physics velocity Y
+  maxLife: number;
+  vx: number;
+  vy: number;
   color: string;
   size: number;
 }
