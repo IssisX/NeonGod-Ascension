@@ -209,13 +209,13 @@ export interface GameState {
   pools: {
     bullets: any;
     enemies: any;
-    particles: any;
     shards: any;
     gems: any;
     pickups: any;
   };
   spatialGrid: any;
   visualGrid: any;
+  particleSystem: any; // NEW
 }
 
 export interface UpgradeOption {

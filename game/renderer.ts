@@ -152,11 +152,13 @@ const renderBloomPass = (mainCtx: CanvasRenderingContext2D, s: GameState) => {
     }
 
     // Particles
-    for (const p of s.particles) {
-        if (p.type === 'glow') {
-            ctx.fillStyle = p.color;
-            ctx.globalAlpha = p.life / p.maxLife;
-            ctx.beginPath(); ctx.arc(p.x, p.y, p.size * 2, 0, Math.PI * 2); ctx.fill();
+    if (s.particleSystem) {
+        for (const p of s.particleSystem.activeParticles) {
+            if (p.type === 'glow') {
+                ctx.fillStyle = p.color;
+                ctx.globalAlpha = p.life / p.maxLife;
+                ctx.beginPath(); ctx.arc(p.x, p.y, p.size * 2, 0, Math.PI * 2); ctx.fill();
+            }
         }
     }
 
@@ -373,17 +375,19 @@ export const renderGame = (ctx: CanvasRenderingContext2D, s: GameState) => {
     // --- PASS 6: GLOW / PARTICLES / BULLETS ---
     ctx.globalCompositeOperation = 'lighter';
 
-    // Particles (Glow + Ghost)
-    for (const part of s.particles) {
-        if (!part.active || (part.type !== 'glow' && part.type !== 'ghost')) continue;
-        if (part.type === 'ghost') {
-            ctx.save(); ctx.translate(part.x, part.y); ctx.rotate(part.rotation); 
-            ctx.fillStyle = part.color; ctx.globalAlpha = (part.life / part.maxLife) * 0.5;
-            ctx.beginPath(); ctx.moveTo(25, 0); ctx.lineTo(-10, 20); ctx.lineTo(-20, 0); ctx.lineTo(-10, -20); ctx.closePath(); ctx.fill();
-            ctx.restore();
-        } else {
-            ctx.fillStyle = part.color; ctx.globalAlpha = part.life / part.maxLife; 
-            ctx.beginPath(); ctx.arc(part.x, part.y, part.size, 0, Math.PI * 2); ctx.fill();
+    // Particles (Render from System)
+    if (s.particleSystem) {
+        const parts = s.particleSystem.activeParticles;
+        for (const part of parts) {
+            if (part.type === 'ghost') {
+                ctx.save(); ctx.translate(part.x, part.y); ctx.rotate(part.rotation);
+                ctx.fillStyle = part.color; ctx.globalAlpha = (part.life / part.maxLife) * 0.5;
+                ctx.beginPath(); ctx.moveTo(25, 0); ctx.lineTo(-10, 20); ctx.lineTo(-20, 0); ctx.lineTo(-10, -20); ctx.closePath(); ctx.fill();
+                ctx.restore();
+            } else {
+                ctx.fillStyle = part.color; ctx.globalAlpha = part.life / part.maxLife;
+                ctx.beginPath(); ctx.arc(part.x, part.y, part.size, 0, Math.PI * 2); ctx.fill();
+            }
         }
     }
 
@@ -445,9 +449,32 @@ export const renderGame = (ctx: CanvasRenderingContext2D, s: GameState) => {
         ctx.beginPath(); ctx.arc(sw.x, sw.y, sw.size, 0, Math.PI * 2); ctx.stroke();
     }
 
-    // --- PASS 7: UI ---
+    // --- PASS 7: POST-PROCESSING (Chromatic Aberration & Scanlines) ---
+    // Apply RGB Split based on trauma
+    if (trauma > 0) {
+        ctx.save();
+        ctx.globalCompositeOperation = 'screen';
+
+        // Red Channel Shift
+        ctx.translate(abX, abY);
+        ctx.globalAlpha = 0.03 * trauma; // Subtle
+        ctx.fillStyle = '#ff0000';
+        ctx.fillRect(0,0, s.width, s.height); // Tint
+        ctx.restore();
+    }
+
+    // --- PASS 8: DIEGETIC UI (Scanlines) ---
     ctx.globalCompositeOperation = 'source-over';
     ctx.globalAlpha = 1;
+
+    // Scanlines (Simulated)
+    ctx.save();
+    ctx.globalAlpha = 0.05;
+    ctx.fillStyle = '#000';
+    for(let j=0; j<s.height; j+=4) {
+        ctx.fillRect(0, j, s.width, 1);
+    }
+    ctx.restore();
 
     // Tactical Reticle (DIEGETIC)
     if (!s.gameOver && !s.paused && s.active) {

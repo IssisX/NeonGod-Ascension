@@ -5,6 +5,7 @@ import { SpatialGrid, VisualGrid } from './grids';
 import { updateEnemyAI, AIContext } from './ai';
 import { Director } from './director';
 import { Physics } from './physics';
+import { ParticleSystem } from './particles';
 
 // --- POOLS & FACTORIES ---
 export const Factories = {
@@ -12,8 +13,6 @@ export const Factories = {
   resetBullet: (b: any) => { b.id = ''; b.x = 0; b.y = 0; b.vx = 0; b.vy = 0; b.life = 0; b.color = ''; b.dmg = 0; b.pierce = 0; b.homing = 0; b.size = 3; b.active = false; },
   enemy: () => ({ id: '', x: 0, y: 0, vx: 0, vy: 0, hp: 0, maxHp: 0, type: 'chaser', speed: 0, size: 0, color: '', isElite: false, affixes: [], affixTimer: 0, xp: 0, score: 0, shootTimer: 0, attackTimer: 0, phase: 0, flockForceX: 0, flockForceY: 0, dead: false, active: false, life: 0, hitFlash: 0, rotation: 0, spawnAnim: 0, tentacles: [] }),
   resetEnemy: (e: any) => { e.id = ''; e.x = 0; e.y = 0; e.vx = 0; e.vy = 0; e.hp = 0; e.maxHp = 0; e.type = 'chaser'; e.speed = 0; e.size = 0; e.color = ''; e.isElite = false; e.affixes = []; e.affixTimer = 0; e.xp = 0; e.score = 0; e.shootTimer = 0; e.attackTimer = 0; e.phase = 0; e.flockForceX = 0; e.flockForceY = 0; e.dead = false; e.active = false; e.life = 0; e.hitFlash = 0; e.rotation = 0; e.spawnAnim = 0; e.tentacles = []; },
-  particle: () => ({ x: 0, y: 0, vx: 0, vy: 0, life: 0, maxLife: 0, color: '', size: 0, friction: 0.92, type: 'glow', active: false, rotation: 0, rotationSpeed: 0 }),
-  resetParticle: (p: any) => { p.x = 0; p.y = 0; p.vx = 0; p.vy = 0; p.life = 0; p.maxLife = 0; p.color = ''; p.size = 0; p.friction = 0.92; p.type = 'glow'; p.active = false; p.rotation = 0; p.rotationSpeed = 0; },
   shard: () => ({ x: 0, y: 0, vx: 0, vy: 0, life: 0, maxLife: 0, color: '', size: 0, rotation: 0, rotationSpeed: 0, active: false }),
   resetShard: (s: any) => { s.x = 0; s.y = 0; s.vx = 0; s.vy = 0; s.life = 0; s.maxLife = 0; s.color = ''; s.size = 0; s.rotation = 0; s.rotationSpeed = 0; s.active = false; },
   gem: () => ({ x: 0, y: 0, vx: 0, vy: 0, val: 0, life: 0, active: false }),
@@ -80,13 +79,13 @@ export function createGameState(width: number, height: number): GameState {
         pools: {
             bullets: new ObjectPool(Factories.bullet, Factories.resetBullet, CONFIG.POOLS.BULLETS.initial, CONFIG.POOLS.BULLETS.max),
             enemies: new ObjectPool(Factories.enemy, Factories.resetEnemy, CONFIG.POOLS.ENEMIES.initial, CONFIG.POOLS.ENEMIES.max),
-            particles: new ObjectPool(Factories.particle, Factories.resetParticle, CONFIG.POOLS.PARTICLES.initial, CONFIG.POOLS.PARTICLES.max),
             shards: new ObjectPool(Factories.shard, Factories.resetShard, 50, 150),
             gems: new ObjectPool(Factories.gem, Factories.resetGem, CONFIG.POOLS.GEMS.initial, CONFIG.POOLS.GEMS.max),
             pickups: new ObjectPool(Factories.pickup, Factories.resetPickup, CONFIG.POOLS.PICKUPS.initial, CONFIG.POOLS.PICKUPS.max),
         },
         spatialGrid: new SpatialGrid(CONFIG.SPATIAL.CELL_SIZE),
         visualGrid: new VisualGrid(width, height),
+        particleSystem: new ParticleSystem(CONFIG.POOLS.PARTICLES.max), // Initialize new system
     };
     resetPlayer(s.player, width, height);
     return s;
@@ -98,16 +97,9 @@ export const createExplosion = (s: GameState, x: number, y: number, color: strin
         s.visualGrid.applyForce(x, y, 150 * speed, 50 * speed);
         s.visualGrid.addDensity(x, y, 50 * speed);
     }
-    
-    // Normal Debris Logic
-    const maxCount = Math.min(count, s.qualitySettings.particles - s.particles.length);
-    for (let i = 0; i < maxCount; i++) {
-        const p = s.pools.particles.acquire(); if (!p) break;
-        const angle = Utils.rand(0, Math.PI * 2), vel = Utils.rand(2, 6) * speed;
-        p.x = x; p.y = y; p.vx = Math.cos(angle) * vel; p.vy = Math.sin(angle) * vel;
-        p.life = Utils.rand(20, 40); p.maxLife = 40; p.color = color;
-        p.size = Utils.rand(2, 6); p.friction = 0.92; p.type = 'glow'; p.active = true;
-        s.particles.push(p);
+    // Delegate to Smart Particle System
+    if (s.particleSystem) {
+        s.particleSystem.spawnExplosion(x, y, color, count, speed);
     }
 };
 
@@ -326,18 +318,22 @@ export function updateGame(s: GameState, callbacks: GameCallbacks) {
     if (Math.hypot(p.vx, p.vy) > 0.5 && s.frame % 3 === 0) {
         const backAngle = p.angle + Math.PI;
         const spawnThruster = (offsetAng: number) => {
-            const part = s.pools.particles.acquire();
-            if (part) {
-                const tAng = backAngle + offsetAng;
-                part.x = p.x + Math.cos(tAng) * 20; part.y = p.y + Math.sin(tAng) * 20;
-                part.vx = Math.cos(backAngle) * Utils.rand(2, 4); part.vy = Math.sin(backAngle) * Utils.rand(2, 4);
-                part.life = 15; part.maxLife = 15; part.color = '#00f3ff'; part.size = Utils.rand(2, 5);
-                part.friction = 0.9; part.type = 'glow'; part.active = true;
-                s.particles.push(part);
-                // Thrusters add colored fluid density
-                s.visualGrid.addDensity(part.x, part.y, 30, '#00f3ff');
-                s.visualGrid.addVelocity(part.x, part.y, part.vx * 2, part.vy * 2);
+            const tAng = backAngle + offsetAng;
+            const px = p.x + Math.cos(tAng) * 20;
+            const py = p.y + Math.sin(tAng) * 20;
+            const pvx = Math.cos(backAngle) * Utils.rand(2, 4);
+            const pvy = Math.sin(backAngle) * Utils.rand(2, 4);
+
+            if(s.particleSystem) {
+                s.particleSystem.spawn(px, py, {
+                    vx: pvx, vy: pvy,
+                    life: 15, color: '#00f3ff', size: Utils.rand(2, 5), type: 'glow'
+                });
             }
+
+            // Thrusters add colored fluid density
+            s.visualGrid.addDensity(px, py, 30, '#00f3ff');
+            s.visualGrid.addVelocity(px, py, pvx * 2, pvy * 2);
         };
         spawnThruster(0.4); spawnThruster(-0.4);
     }
@@ -385,12 +381,11 @@ export function updateGame(s: GameState, callbacks: GameCallbacks) {
       
       createShockwave(s, p.x, p.y, 200, CONFIG.COLORS.PLAYER_DASH, 10);
       for (let i = 0; i < 5; i++) {
-        const particle = s.pools.particles.acquire();
-        if (particle) {
-          particle.x = p.x - dmx * i * 5; particle.y = p.y - dmy * i * 5; particle.vx = 0; particle.vy = 0; particle.life = 20; particle.maxLife = 20;
-          particle.color = 'rgba(0, 243, 255, 0.4)'; particle.size = 10; particle.friction = 0; particle.type = 'ghost'; particle.active = true; particle.rotation = p.angle;
-          s.particles.push(particle);
-        }
+          if (s.particleSystem) {
+              s.particleSystem.spawn(p.x - dmx * i * 5, p.y - dmy * i * 5, {
+                  vx: 0, vy: 0, life: 20, color: 'rgba(0, 243, 255, 0.4)', size: 10, type: 'ghost', rotation: p.angle
+              });
+          }
       }
     }
     if (p.cd > 0) p.cd--; if (p.dashCd > 0) p.dashCd--; if (p.invuln > 0) p.invuln--;
@@ -614,10 +609,10 @@ export function updateGame(s: GameState, callbacks: GameCallbacks) {
     // Gems drift with fluid
     const fv = s.visualGrid.getVelocityAt(g.x, g.y); g.vx += fv.vx * 1.0; g.vy += fv.vy * 1.0;
     if (d < CONFIG.GEMS.COLLECT_RADIUS) { p.xp += g.val; if (p.xp >= p.xpToNext) { p.xp -= p.xpToNext; p.level++; p.xpToNext = Math.floor(p.xpToNext * CONFIG.PROGRESSION.XP_SCALE); s.paused = true; callbacks.playSound('levelup'); const pool: UpgradeOption[] = []; UPGRADES.forEach(u => { const current = s.upgradeStacks.get(u.id) || 0; if (current < u.maxStack) { const weight = Math.max(0.1, u.weight - current * 0.1); for (let k = 0; k < weight * 10; k++) pool.push({ ...u, currentStack: current }); } }); const options: UpgradeOption[] = []; if (pool.length > 0) { while (options.length < 3 && pool.length > 0) { const idx = Math.floor(Math.random() * pool.length); const pick = pool[idx]; if (!options.find(o => o.id === pick.id)) options.push(pick); for (let z = pool.length - 1; z >= 0; z--) if (pool[z].id === pick.id) pool.splice(z, 1); } callbacks.onLevelUp(options); } else { s.paused = false; } } s.pools.gems.release(g); s.gems.splice(i, 1); } else if (g.life <= 0) { s.pools.gems.release(g); s.gems.splice(i, 1); } }
-    for (let i = s.particles.length - 1; i >= 0; i--) { const part = s.particles[i]; if (!part.active) continue;
-    // Particles drift with fluid
-    const fv = s.visualGrid.getVelocityAt(part.x, part.y); part.vx += fv.vx * 2.5; part.vy += fv.vy * 2.5;
-    part.x += part.vx * s.timeScale; part.y += part.vy * s.timeScale; part.vx *= part.friction; part.vy *= part.friction; part.life -= s.timeScale; if (part.type === 'shard') { part.rotation += part.rotationSpeed * s.timeScale; part.rotationSpeed *= 0.98; } if (part.life <= 0) { s.pools.particles.release(part); s.particles.splice(i, 1); } }
+
+    // UPDATE PARTICLE SYSTEM (New)
+    if (s.particleSystem) s.particleSystem.update(s);
+
     for (let i = s.shockwaves.length - 1; i >= 0; i--) { const sw = s.shockwaves[i]; sw.size += sw.speed * s.timeScale; sw.alpha -= 0.03 * s.timeScale; if (sw.alpha <= 0) s.shockwaves.splice(i, 1); }
     for (const o of s.orbitals) { o.angle += 0.05; const ox = p.x + Math.cos(o.angle) * o.dist; const oy = p.y + Math.sin(o.angle) * o.dist; for (const e of s.enemies) { if (e.type === 'projectile' || e.dead || !e.active) continue; if (Utils.dist(ox, oy, e.x, e.y) < e.size + 10) { e.hp -= 2; e.hitFlash = 2; createExplosion(s, e.x, e.y, '#00ffff', 1, 0.5); } } }
     for (let i = s.texts.length - 1; i >= 0; i--) { const t = s.texts[i]; t.x += t.vx * s.timeScale; t.y += t.vy * s.timeScale; t.vy += 0.1 * s.timeScale; t.life -= s.timeScale; if (t.life <= 0) s.texts.splice(i, 1); }

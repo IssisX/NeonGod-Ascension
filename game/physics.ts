@@ -20,6 +20,10 @@ export const Physics = {
         return { segments, length: segLen, stiffness };
     },
 
+    createChain: (x: number, y: number, count: number, length: number): Tentacle => {
+        return Physics.createTentacle(x, y, length, count, 0.1); // Loose chain
+    },
+
     /**
      * Updates a tentacle using Verlet Integration.
      * @param t The tentacle
@@ -28,11 +32,11 @@ export const Physics = {
      * @param drag Fluid drag factor (0-1)
      * @param gravity Gravity vector (optional)
      */
-    updateTentacle: (t: Tentacle, headX: number, headY: number, drag = 0.9, gravity = {x:0, y:0}) => {
+    updateTentacle: (t: Tentacle, headX: number | null, headY: number | null, drag = 0.9, gravity = {x:0, y:0}) => {
         // 1. Move Points (Verlet)
         for (let i = 0; i < t.segments.length; i++) {
             const p = t.segments[i];
-            if (p.pinned) {
+            if (i === 0 && headX !== null && headY !== null) {
                 p.x = headX;
                 p.y = headY;
                 p.prevX = headX;
@@ -51,7 +55,6 @@ export const Physics = {
         }
 
         // 2. Constrain Distance (Inverse Kinematics / Stick Constraint)
-        // Iterate multiple times for stability
         const iterations = 5;
         for (let k = 0; k < iterations; k++) {
             for (let i = 0; i < t.segments.length - 1; i++) {
@@ -62,19 +65,21 @@ export const Physics = {
                 const dy = p2.y - p1.y;
                 const dist = Math.hypot(dx, dy);
                 const diff = t.length - dist;
-                const percent = diff / dist / 2;
 
+                // Avoid divide by zero
+                if (dist === 0) continue;
+
+                const percent = diff / dist / 2;
                 const offsetX = dx * percent * t.stiffness;
                 const offsetY = dy * percent * t.stiffness;
 
-                if (!p1.pinned) {
+                if (i !== 0 || (headX === null)) { // If head is free, move it
                     p1.x -= offsetX;
                     p1.y -= offsetY;
                 }
-                if (!p2.pinned) {
-                    p2.x += offsetX;
-                    p2.y += offsetY;
-                }
+
+                p2.x += offsetX;
+                p2.y += offsetY;
             }
         }
     }

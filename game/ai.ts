@@ -286,6 +286,23 @@ const updateBoss = (e: Enemy, p: Player, ctx: AIContext) => {
 
 // --- MAIN AI UPDATE ---
 
+// --- SQUAD TACTICS ---
+const applySquadTactics = (e: Enemy, ctx: AIContext, steering: {x:number, y:number}) => {
+    // If one enemy spots the player, alert nearby idle ones
+    const distToPlayer = Vec.dist(e, ctx.gameState.player);
+    if (distToPlayer < 400 && e.type === 'chaser') {
+        const nearby = ctx.gameState.spatialGrid.queryRadius(e.x, e.y, 200);
+        for (const other of nearby) {
+            if (other.type === 'tank' && other.active) {
+                // Tanks move to intercept
+                other.vx += (e.vx * 0.1);
+                other.vy += (e.vy * 0.1);
+            }
+        }
+    }
+    return steering;
+}
+
 export const updateEnemyAI = (e: Enemy, ctx: AIContext) => {
     if (!e.active || e.dead) return;
 
@@ -302,6 +319,9 @@ export const updateEnemyAI = (e: Enemy, ctx: AIContext) => {
         case 'tank': steering = seek(e, p); break; // Slow chaser
         default: steering = seek(e, p); break;
     }
+
+    // 1.5 Squad Tactics (Hive Mind)
+    applySquadTactics(e, ctx, steering);
 
     // 2. Swarm / Flocking (Only for non-bosses)
     if (e.type !== 'boss' && e.type !== 'kamikaze' && e.type !== 'projectile') {
