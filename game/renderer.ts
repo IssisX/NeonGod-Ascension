@@ -2,6 +2,28 @@ import { CONFIG } from '../constants';
 import { GameState, Light } from '../types';
 import { Utils } from '../utils';
 
+// --- OFFSCREEN BUFFERS ---
+let bloomCanvas: HTMLCanvasElement | null = null;
+let bloomCtx: CanvasRenderingContext2D | null = null;
+
+const getBloomContext = (width: number, height: number) => {
+    // Downsample for performance and natural blur
+    const scale = 0.25;
+    const w = Math.floor(width * scale);
+    const h = Math.floor(height * scale);
+
+    if (!bloomCanvas) {
+        bloomCanvas = document.createElement('canvas');
+        bloomCanvas.width = w;
+        bloomCanvas.height = h;
+        bloomCtx = bloomCanvas.getContext('2d');
+    } else if (bloomCanvas.width !== w || bloomCanvas.height !== h) {
+        bloomCanvas.width = w;
+        bloomCanvas.height = h;
+    }
+    return { canvas: bloomCanvas, ctx: bloomCtx, scale };
+};
+
 // Helper for Procedural Lightning
 const drawLightning = (ctx: CanvasRenderingContext2D, x1: number, y1: number, x2: number, y2: number, color: string, width: number, displace: number) => {
     if (displace < 2) {
@@ -23,6 +45,27 @@ const drawLightning = (ctx: CanvasRenderingContext2D, x1: number, y1: number, x2
         drawLightning(ctx, x1, y1, midX + offsetX, midY + offsetY, color, width, displace / 2);
         drawLightning(ctx, midX + offsetX, midY + offsetY, x2, y2, color, width, displace / 2);
     }
+};
+
+// Helper for Tentacles
+const drawTentacle = (ctx: CanvasRenderingContext2D, t: any, color: string, width: number) => {
+    if (!t.segments || t.segments.length < 2) return;
+    ctx.beginPath();
+    ctx.moveTo(t.segments[0].x, t.segments[0].y);
+    for (let i = 1; i < t.segments.length; i++) {
+        // Quadratic Curve for smoothness
+        const p0 = t.segments[i - 1];
+        const p1 = t.segments[i];
+        const midX = (p0.x + p1.x) / 2;
+        const midY = (p0.y + p1.y) / 2;
+        ctx.quadraticCurveTo(p0.x, p0.y, midX, midY);
+    }
+    ctx.lineTo(t.segments[t.segments.length - 1].x, t.segments[t.segments.length - 1].y);
+
+    ctx.lineWidth = width;
+    ctx.lineCap = 'round';
+    ctx.strokeStyle = color;
+    ctx.stroke();
 };
 
 // Procedural Harmongraph / Lissajous Drawing
@@ -67,56 +110,64 @@ const drawHarmonicEntity = (ctx: CanvasRenderingContext2D, x: number, y: number,
     ctx.globalAlpha = 1.0;
 };
 
-// --- DYNAMIC LIGHTING SYSTEM ---
-const renderLighting = (ctx: CanvasRenderingContext2D, s: GameState) => {
-    // 1. Accumulate Lights
-    const lights: Light[] = [];
+// --- DYNAMIC BLOOM SYSTEM ---
+const renderBloomPass = (mainCtx: CanvasRenderingContext2D, s: GameState) => {
+    const { canvas, ctx, scale } = getBloomContext(s.width, s.height);
+    if (!ctx || !canvas) return;
 
-    // Player "Headlight"
-    lights.push({ x: s.player.x, y: s.player.y, radius: 300, color: '#00f3ff', intensity: 0.4 });
-    // Player Thrusters
-    const backAngle = s.player.angle + Math.PI;
-    lights.push({ x: s.player.x + Math.cos(backAngle) * 30, y: s.player.y + Math.sin(backAngle) * 30, radius: 100, color: '#00ffff', intensity: 0.6, flicker: true });
+    // 1. Clear Bloom Buffer
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.fillStyle = '#000000';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    // 2. Render Emissive Entities (Scaled)
+    ctx.save();
+    ctx.scale(scale, scale);
+
+    // Player Glow
+    ctx.fillStyle = '#00f3ff';
+    ctx.globalAlpha = 0.5;
+    ctx.beginPath(); ctx.arc(s.player.x, s.player.y, 40, 0, Math.PI * 2); ctx.fill();
 
     // Bullets
     for (const b of s.bullets) {
-        if (!b.active) continue;
-        lights.push({ x: b.x, y: b.y, radius: b.size * 20, color: b.color, intensity: 0.8 });
+        ctx.fillStyle = b.color;
+        ctx.beginPath(); ctx.arc(b.x, b.y, b.size * 2, 0, Math.PI * 2); ctx.fill();
     }
 
     // Enemies (Glow)
     for (const e of s.enemies) {
-        if (!e.active || e.dead) continue;
-        lights.push({ x: e.x, y: e.y, radius: e.size * 3, color: e.color, intensity: 0.5 });
-    }
-
-    // Explosions & Particles (Glows only)
-    for (const p of s.particles) {
-        if (p.active && p.type === 'glow') {
-            lights.push({ x: p.x, y: p.y, radius: p.size * 4, color: p.color, intensity: p.life / p.maxLife });
+        if (!e.active) continue;
+        ctx.fillStyle = e.color;
+        ctx.globalAlpha = 0.3;
+        ctx.beginPath(); ctx.arc(e.x, e.y, e.size * 2, 0, Math.PI * 2); ctx.fill();
+        // Tentacles glow too
+        if (e.tentacles) {
+             e.tentacles.forEach(t => {
+                 if (t.segments.length > 0) {
+                    ctx.beginPath(); ctx.arc(t.segments[0].x, t.segments[0].y, 10, 0, Math.PI*2); ctx.fill();
+                 }
+             });
         }
     }
 
-    // 2. Render Light Map
-    ctx.globalCompositeOperation = 'screen';
-
-    for (const l of lights) {
-        const flicker = l.flicker ? (0.8 + Math.random() * 0.4) : 1.0;
-        const rad = l.radius * flicker;
-
-        const grad = ctx.createRadialGradient(l.x, l.y, 0, l.x, l.y, rad);
-        grad.addColorStop(0, l.color);
-        grad.addColorStop(1, '#000000');
-
-        ctx.globalAlpha = l.intensity * 0.4;
-        ctx.fillStyle = grad;
-        ctx.beginPath();
-        ctx.arc(l.x, l.y, rad, 0, Math.PI * 2);
-        ctx.fill();
+    // Particles
+    for (const p of s.particles) {
+        if (p.type === 'glow') {
+            ctx.fillStyle = p.color;
+            ctx.globalAlpha = p.life / p.maxLife;
+            ctx.beginPath(); ctx.arc(p.x, p.y, p.size * 2, 0, Math.PI * 2); ctx.fill();
+        }
     }
 
-    ctx.globalAlpha = 1.0;
-    ctx.globalCompositeOperation = 'source-over';
+    ctx.restore();
+
+    // 3. Composite Bloom back to Main (Screen/Additive)
+    mainCtx.globalCompositeOperation = 'screen';
+    mainCtx.globalAlpha = 1.0;
+    // Draw scaled up (linear interpolation gives free blur)
+    mainCtx.drawImage(canvas, 0, 0, s.width, s.height);
+    mainCtx.globalCompositeOperation = 'source-over';
 };
 
 export const renderGame = (ctx: CanvasRenderingContext2D, s: GameState) => {
@@ -157,13 +208,13 @@ export const renderGame = (ctx: CanvasRenderingContext2D, s: GameState) => {
     }
     ctx.globalAlpha = 1;
 
-    // --- PASS 2: FLUID & LIGHTING ---
+    // --- PASS 2: FLUID ---
     if (s.visualGrid) s.visualGrid.render(ctx, s.qualitySettings.gridStep);
     
-    // Apply Volumetric Lighting
-    renderLighting(ctx, s);
+    // --- PASS 3: BLOOM (LUCID PIPELINE) ---
+    renderBloomPass(ctx, s);
 
-    // --- PASS 3: ENTITIES ---
+    // --- PASS 4: ENTITIES ---
     const blur = s.qualitySettings.shadowBlur; 
 
     const drawEntities = (offsetX: number, offsetY: number, channel: 'main' | 'red' | 'blue') => {
@@ -193,6 +244,13 @@ export const renderGame = (ctx: CanvasRenderingContext2D, s: GameState) => {
             if (!e.active || e.dead || e.type === 'projectile') continue;
 
             ctx.save(); ctx.translate(offsetX, offsetY);
+
+            // Draw Tentacles (Behind body)
+            if (e.tentacles && e.tentacles.length > 0) {
+                 ctx.globalAlpha = 0.8;
+                 e.tentacles.forEach(t => drawTentacle(ctx, t, e.color, e.isElite ? 3 : 1.5));
+                 ctx.globalAlpha = 1.0;
+            }
 
             if (channel === 'main') {
                 ctx.shadowBlur = e.isElite ? (blur > 0 ? 25 : 0) : (blur > 0 ? 12 : 0);
@@ -282,7 +340,7 @@ export const renderGame = (ctx: CanvasRenderingContext2D, s: GameState) => {
     }
     drawEntities(0, 0, 'main');
 
-    // --- PASS 4: OVERLAYS ---
+    // --- PASS 5: OVERLAYS ---
     ctx.globalAlpha = 1;
     // Radial Health Bars
     for (const e of s.enemies) {
@@ -312,7 +370,7 @@ export const renderGame = (ctx: CanvasRenderingContext2D, s: GameState) => {
         ctx.fillRect(pick.x - sz/2, pick.y - sz/2, sz, sz);
     }
 
-    // --- PASS 5: GLOW / PARTICLES / BULLETS ---
+    // --- PASS 6: GLOW / PARTICLES / BULLETS ---
     ctx.globalCompositeOperation = 'lighter';
 
     // Particles (Glow + Ghost)
@@ -387,7 +445,7 @@ export const renderGame = (ctx: CanvasRenderingContext2D, s: GameState) => {
         ctx.beginPath(); ctx.arc(sw.x, sw.y, sw.size, 0, Math.PI * 2); ctx.stroke();
     }
 
-    // --- PASS 6: UI ---
+    // --- PASS 7: UI ---
     ctx.globalCompositeOperation = 'source-over';
     ctx.globalAlpha = 1;
 

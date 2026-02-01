@@ -45,6 +45,20 @@ export interface Bullet extends Entity {
 
 export type EnemyAffix = 'VORTEX' | 'REPULSOR' | 'SPLITTER' | 'WARP' | 'REGEN';
 
+export interface VerletPoint {
+  x: number;
+  y: number;
+  prevX: number;
+  prevY: number;
+  pinned: boolean;
+}
+
+export interface Tentacle {
+  segments: VerletPoint[];
+  length: number;
+  stiffness: number;
+}
+
 export interface Enemy extends Entity {
   id: string;
   hp: number;
@@ -69,6 +83,7 @@ export interface Enemy extends Entity {
   hitFlash: number;
   rotation: number;
   spawnAnim: number; 
+  tentacles: Tentacle[]; // NEW: procedural limbs
 }
 
 export interface Particle extends Entity {

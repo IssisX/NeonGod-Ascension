@@ -4,13 +4,14 @@ import { Utils } from '../utils';
 import { SpatialGrid, VisualGrid } from './grids';
 import { updateEnemyAI, AIContext } from './ai';
 import { Director } from './director';
+import { Physics } from './physics';
 
 // --- POOLS & FACTORIES ---
 export const Factories = {
   bullet: () => ({ id: '', x: 0, y: 0, vx: 0, vy: 0, life: 0, color: '', dmg: 0, pierce: 0, homing: 0, size: 3, active: false }),
   resetBullet: (b: any) => { b.id = ''; b.x = 0; b.y = 0; b.vx = 0; b.vy = 0; b.life = 0; b.color = ''; b.dmg = 0; b.pierce = 0; b.homing = 0; b.size = 3; b.active = false; },
-  enemy: () => ({ id: '', x: 0, y: 0, vx: 0, vy: 0, hp: 0, maxHp: 0, type: 'chaser', speed: 0, size: 0, color: '', isElite: false, affixes: [], affixTimer: 0, xp: 0, score: 0, shootTimer: 0, attackTimer: 0, phase: 0, flockForceX: 0, flockForceY: 0, dead: false, active: false, life: 0, hitFlash: 0, rotation: 0, spawnAnim: 0 }),
-  resetEnemy: (e: any) => { e.id = ''; e.x = 0; e.y = 0; e.vx = 0; e.vy = 0; e.hp = 0; e.maxHp = 0; e.type = 'chaser'; e.speed = 0; e.size = 0; e.color = ''; e.isElite = false; e.affixes = []; e.affixTimer = 0; e.xp = 0; e.score = 0; e.shootTimer = 0; e.attackTimer = 0; e.phase = 0; e.flockForceX = 0; e.flockForceY = 0; e.dead = false; e.active = false; e.life = 0; e.hitFlash = 0; e.rotation = 0; e.spawnAnim = 0; },
+  enemy: () => ({ id: '', x: 0, y: 0, vx: 0, vy: 0, hp: 0, maxHp: 0, type: 'chaser', speed: 0, size: 0, color: '', isElite: false, affixes: [], affixTimer: 0, xp: 0, score: 0, shootTimer: 0, attackTimer: 0, phase: 0, flockForceX: 0, flockForceY: 0, dead: false, active: false, life: 0, hitFlash: 0, rotation: 0, spawnAnim: 0, tentacles: [] }),
+  resetEnemy: (e: any) => { e.id = ''; e.x = 0; e.y = 0; e.vx = 0; e.vy = 0; e.hp = 0; e.maxHp = 0; e.type = 'chaser'; e.speed = 0; e.size = 0; e.color = ''; e.isElite = false; e.affixes = []; e.affixTimer = 0; e.xp = 0; e.score = 0; e.shootTimer = 0; e.attackTimer = 0; e.phase = 0; e.flockForceX = 0; e.flockForceY = 0; e.dead = false; e.active = false; e.life = 0; e.hitFlash = 0; e.rotation = 0; e.spawnAnim = 0; e.tentacles = []; },
   particle: () => ({ x: 0, y: 0, vx: 0, vy: 0, life: 0, maxLife: 0, color: '', size: 0, friction: 0.92, type: 'glow', active: false, rotation: 0, rotationSpeed: 0 }),
   resetParticle: (p: any) => { p.x = 0; p.y = 0; p.vx = 0; p.vy = 0; p.life = 0; p.maxLife = 0; p.color = ''; p.size = 0; p.friction = 0.92; p.type = 'glow'; p.active = false; p.rotation = 0; p.rotationSpeed = 0; },
   shard: () => ({ x: 0, y: 0, vx: 0, vy: 0, life: 0, maxLife: 0, color: '', size: 0, rotation: 0, rotationSpeed: 0, active: false }),
@@ -477,6 +478,12 @@ export function updateGame(s: GameState, callbacks: GameCallbacks) {
          if (e.x > s.width - margin) { e.x = s.width - margin; e.vx *= -0.5; }
          if (e.y < margin) { e.y = margin; e.vy *= -0.5; }
          if (e.y > s.height - margin) { e.y = s.height - margin; e.vy *= -0.5; }
+
+         // Physics: Update Tentacles
+         if (e.tentacles && e.tentacles.length > 0) {
+            const drag = s.visualGrid ? 0.9 : 0.95; // More drag in "empty" space vs fluid? Actually fluid should have more drag but we simulate flow separately.
+            e.tentacles.forEach(t => Physics.updateTentacle(t, e.x, e.y, drag));
+         }
       }
 
       // 4. Player Collision
@@ -643,6 +650,16 @@ export function updateGame(s: GameState, callbacks: GameCallbacks) {
                 e.score = isElite ? cfg.score * CONFIG.ELITE.SCORE_MULT : cfg.score;
                 e.shootTimer = 0; e.active = true; e.dead = false; e.phase = 0; e.hitFlash = 0;
                 e.affixes = []; e.affixTimer = 0; e.spawnAnim = 0;
+                e.tentacles = [];
+
+                // Procedurally add tentacles based on type
+                if (typeKey === 'CHASER' || typeKey === 'KAMIKAZE') {
+                    // Tail
+                    e.tentacles.push(Physics.createTentacle(x, y, 40, 5, 0.2));
+                } else if (typeKey === 'BOSS') {
+                    // Multiple tentacles
+                    for(let k=0; k<6; k++) e.tentacles.push(Physics.createTentacle(x, y, 100, 10, 0.1));
+                }
 
                 if (isElite && s.wave >= 3) {
                     const affixRoll = Math.random();
