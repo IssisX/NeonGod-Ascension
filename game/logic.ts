@@ -2,6 +2,7 @@ import { CONFIG, UPGRADES } from '../constants';
 import { GameState, Player, UpgradeOption, RunData, Enemy, Bullet, Particle, Shard, Gem, SoundType, Pickup, EnemyAffix } from '../types';
 import { Utils } from '../utils';
 import { SpatialGrid, VisualGrid } from './grids';
+import { updateEnemyAI, AIContext } from './ai';
 
 // --- POOLS & FACTORIES ---
 export const Factories = {
@@ -415,106 +416,94 @@ export function updateGame(s: GameState, callbacks: GameCallbacks) {
       p.vx -= Math.cos(p.angle) * 0.8; p.vy -= Math.sin(p.angle) * 0.8;
     }
 
+    // --- AI CONTEXT CONSTRUCTION (Optimized) ---
+    const aiContext: AIContext = {
+        gameState: s,
+        spawnProjectile: (x, y, vx, vy, type, color, size) => {
+            const proj = s.pools.enemies.acquire();
+            if (proj) {
+                proj.id = Utils.uid('proj');
+                proj.x = x; proj.y = y; proj.vx = vx; proj.vy = vy;
+                proj.type = type; proj.size = size; proj.color = color;
+                proj.life = 120; proj.hp = 1; proj.active = true;
+                s.enemies.push(proj);
+            }
+        },
+        spawnEnemy: (x, y, type) => {
+             const e = s.pools.enemies.acquire();
+             if (e) {
+                // Simplified spawn for summoned units
+                const cfg = CONFIG.ENEMIES[type.toUpperCase()] || CONFIG.ENEMIES.CHASER;
+                e.id = Utils.uid('sum'); e.x = x; e.y = y; e.vx = 0; e.vy = 0;
+                e.hp = cfg.hp + s.wave * cfg.hpScale; e.maxHp = e.hp;
+                e.type = type; e.speed = cfg.speed; e.size = cfg.size; e.color = cfg.color;
+                e.isElite = false; e.xp = 1; e.score = 10; e.active = true; e.dead = false;
+                s.enemies.push(e);
+             }
+        },
+        spawnExplosion: (x, y, color, size) => createExplosion(s, x, y, color, Math.floor(size), 1.0),
+        spawnShockwave: (x, y, size, color) => createShockwave(s, x, y, size, color, 5),
+        playSound: callbacks.playSound
+    };
+
     // UPDATE ENTITIES
     for (let i = s.enemies.length - 1; i >= 0; i--) {
       const e = s.enemies[i];
       if (!e.active || e.dead) continue;
 
-      // --- FLOCKING BEHAVIOR (BOIDS) ---
-      // Reset accumulator
-      e.flockForceX = 0; e.flockForceY = 0;
-
-      let separationX = 0, separationY = 0;
-      let alignmentX = 0, alignmentY = 0;
-      let cohesionX = 0, cohesionY = 0;
-      let count = 0;
-
-      // Query neighbors (Boids optimization: only check nearby)
-      const nearby = s.spatialGrid.queryRadius(e.x, e.y, 80);
-      for (const other of nearby) {
-          if (other.id !== e.id && other.type === e.type && other.active) {
-              const d = Utils.dist(e.x, e.y, other.x, other.y);
-              if (d < 80 && d > 0) {
-                  // Separation: Push away from neighbors
-                  const push = 100 / (d * d); // Inverse square
-                  separationX += (e.x - other.x) * push;
-                  separationY += (e.y - other.y) * push;
-
-                  // Alignment
-                  alignmentX += other.vx;
-                  alignmentY += other.vy;
-
-                  // Cohesion
-                  cohesionX += other.x;
-                  cohesionY += other.y;
-
-                  count++;
-              }
-          }
-      }
-
-      if (count > 0) {
-          alignmentX /= count; alignmentY /= count;
-          cohesionX /= count; cohesionY /= count;
-
-          cohesionX = (cohesionX - e.x) * 0.05;
-          cohesionY = (cohesionY - e.y) * 0.05;
-
-          e.flockForceX = separationX * 1.5 + alignmentX * 0.1 + cohesionX * 0.01;
-          e.flockForceY = separationY * 1.5 + alignmentY * 0.1 + cohesionY * 0.01;
-      }
-
-      // --- FLUID RHEOTAXIS ---
-      // Enemies drift with fluid, but also try to swim against it if aggressive?
-      // No, let's have them surf.
-      const fluidV = s.visualGrid.getVelocityAt(e.x, e.y);
-
-      // Apply Forces
-      e.vx += e.flockForceX * 0.1;
-      e.vy += e.flockForceY * 0.1;
-      e.vx += fluidV.vx * 0.5;
-      e.vy += fluidV.vy * 0.5;
-
-      // Standard AI Steering (Seek Player)
-      // ... [Existing enemy update logic] ...
+      // 1. Update Animations
       if (e.hitFlash > 0) e.hitFlash--;
       if (e.spawnAnim < 1) e.spawnAnim = Math.min(1, e.spawnAnim + 0.05);
-      
-      const toPlayerAng = Math.atan2(p.y - e.y, p.x - e.x);
-      const distToPlayer = Utils.dist(e.x, e.y, p.x, p.y);
 
-      if (e.isElite && e.affixes.length > 0) {
-          e.affixTimer++;
-          for (const affix of e.affixes) {
-              if (affix === 'VORTEX') { if (distToPlayer < CONFIG.AFFIXES.VORTEX.range) { const pull = CONFIG.AFFIXES.VORTEX.force; p.vx -= Math.cos(toPlayerAng) * pull; p.vy -= Math.sin(toPlayerAng) * pull; } } 
-              else if (affix === 'REPULSOR') { if (distToPlayer < CONFIG.AFFIXES.REPULSOR.range) { const push = CONFIG.AFFIXES.REPULSOR.force; p.vx += Math.cos(toPlayerAng) * push; p.vy += Math.sin(toPlayerAng) * push; } } 
-              else if (affix === 'WARP') { if (e.affixTimer > CONFIG.AFFIXES.WARP.cooldown) { e.affixTimer = 0; e.x = p.x + p.vx * 30 + Utils.rand(-50, 50); e.y = p.y + p.vy * 30 + Utils.rand(-50, 50); e.x = Utils.clamp(e.x, 50, s.width-50); e.y = Utils.clamp(e.y, 50, s.height-50); createShockwave(s, e.x, e.y, 100, CONFIG.AFFIXES.WARP.color, 10); } } 
-              else if (affix === 'REGEN') { if (e.affixTimer % CONFIG.AFFIXES.REGEN.interval === 0) { e.hp = Math.min(e.maxHp, e.hp + e.maxHp * CONFIG.AFFIXES.REGEN.rate); } }
-          }
+      // 2. Projectile Physics (Simple Linear)
+      if (e.type === 'projectile') {
+         e.x += e.vx * s.timeScale;
+         e.y += e.vy * s.timeScale;
+         e.life--;
+         if (e.life <= 0 || !Utils.inBounds(e.x, e.y, s.width, s.height, 100)) e.dead = true;
+      }
+      // 3. AI Behavior (Delegated)
+      else {
+         updateEnemyAI(e, aiContext);
+
+         // Apply Velocity (Physics Step)
+         e.x += e.vx * s.timeScale;
+         e.y += e.vy * s.timeScale;
+
+         // Bounds Check (Soft Bounce)
+         const margin = e.size;
+         if (e.x < margin) { e.x = margin; e.vx *= -0.5; }
+         if (e.x > s.width - margin) { e.x = s.width - margin; e.vx *= -0.5; }
+         if (e.y < margin) { e.y = margin; e.vy *= -0.5; }
+         if (e.y > s.height - margin) { e.y = s.height - margin; e.vy *= -0.5; }
       }
 
-      if (e.type === 'kamikaze') {
-        if (e.phase === 0) { 
-            e.rotation = toPlayerAng; e.vx += Math.cos(toPlayerAng) * 0.4; e.vy += Math.sin(toPlayerAng) * 0.4;
-            if (distToPlayer < CONFIG.ENEMIES.KAMIKAZE.detectRange) { e.phase = 1; e.attackTimer = 0; callbacks.playSound('charge'); }
-        } else if (e.phase === 1) { 
-            e.vx *= 0.85; e.vy *= 0.85; e.attackTimer++; e.hitFlash = Math.floor(e.attackTimer / 4) % 2 === 0 ? 1 : 0; 
-            if (e.attackTimer > 45) { e.dead = true; callbacks.playSound('explosion'); createExplosion(s, e.x, e.y, '#ff4400', 30, 2); createShockwave(s, e.x, e.y, 180, '#ffaa00', 8); s.shake = 15; if (distToPlayer < 120 && p.invuln <= 0) { p.hp -= 35; p.invuln = 45; p.hitFlash = 10; callbacks.playSound('hit'); } }
-        }
-      } else if (e.type === 'turret') {
-        e.rotation += 0.01; if (distToPlayer > 400) { e.vx += Math.cos(toPlayerAng) * 0.05; e.vy += Math.sin(toPlayerAng) * 0.05; } else { e.vx *= 0.9; e.vy *= 0.9; }
-        e.shootTimer++; if (e.shootTimer >= CONFIG.ENEMIES.TURRET.shootInterval) { e.shootTimer = 0; callbacks.playSound('shoot'); for(let k=0; k<4; k++) { const proj = s.pools.enemies.acquire(); if(proj) { const ang = e.rotation + (Math.PI/2) * k; proj.id = Utils.uid('t_shot'); proj.x = e.x; proj.y = e.y; proj.vx = Math.cos(ang) * 4; proj.vy = Math.sin(ang) * 4; proj.type = 'projectile'; proj.size = 6; proj.color = '#00ffff'; proj.life = 120; proj.hp = 1; proj.active = true; s.enemies.push(proj); } } }
-      } else if (e.type === 'boss') {
-        e.attackTimer++; if (e.y < 150) e.y += 1.5; const phase = Math.floor(e.attackTimer / 300) % 3;
-        if (phase === 0) { if (e.attackTimer % 8 === 0) { if (e.attackTimer % 32 === 0) callbacks.playSound('shoot'); const angle = e.attackTimer * 0.08; for (let k = 0; k < 3; k++) { const proj = s.pools.enemies.acquire(); if (proj) { const fa = angle + (Math.PI * 2 / 3) * k; proj.id = Utils.uid('bp'); proj.x = e.x; proj.y = e.y; proj.vx = Math.cos(fa) * 4; proj.vy = Math.sin(fa) * 4; proj.type = 'projectile'; proj.size = 6; proj.color = '#ff0000'; proj.life = 200; proj.hp = 1; proj.active = true; s.enemies.push(proj); } } } } 
-        else if (phase === 1) { if (e.attackTimer % 120 === 0) { const ang = Math.atan2(p.y - e.y, p.x - e.x); e.vx = Math.cos(ang) * 12; e.vy = Math.sin(ang) * 12; callbacks.playSound('charge'); } } 
-        else { if (e.attackTimer % 180 === 0) { for (let m = 0; m < 3; m++) { const minion = s.pools.enemies.acquire(); if (minion) { const sa = (Math.PI * 2 / 3) * m; minion.id = Utils.uid('min'); minion.x = e.x + Math.cos(sa) * 100; minion.y = e.y + Math.sin(sa) * 100; minion.vx = 0; minion.vy = 0; minion.hp = 30; minion.maxHp = 30; minion.type = 'chaser'; minion.speed = 3; minion.size = 12; minion.color = CONFIG.ENEMIES.CHASER.color; minion.xp = 15; minion.score = 150; minion.active = true; minion.dead = false; s.enemies.push(minion); } } } }
-        e.vx *= 0.94; e.vy *= 0.94; e.x += e.vx * s.timeScale; e.y += e.vy * s.timeScale; e.x = Utils.clamp(e.x, e.size, s.width - e.size); e.y = Utils.clamp(e.y, e.size, s.height - e.size);
-      } else if (e.type === 'projectile') { e.x += e.vx * s.timeScale; e.y += e.vy * s.timeScale; e.life--; if (e.life <= 0 || !Utils.inBounds(e.x, e.y, s.width, s.height, 100)) e.dead = true; } 
-      else if (e.type === 'shooter') { if (distToPlayer < 250) { e.vx -= Math.cos(toPlayerAng) * 0.15; e.vy -= Math.sin(toPlayerAng) * 0.15; } else { e.vx += Math.cos(toPlayerAng) * 0.1; e.vy += Math.sin(toPlayerAng) * 0.1; } e.shootTimer++; if (e.shootTimer >= CONFIG.ENEMIES.SHOOTER.shootInterval && distToPlayer < 400) { e.shootTimer = 0; callbacks.playSound('shoot'); const proj = s.pools.enemies.acquire(); if (proj) { proj.id = Utils.uid('es'); proj.x = e.x; proj.y = e.y; proj.vx = Math.cos(toPlayerAng) * 5; proj.vy = Math.sin(toPlayerAng) * 5; proj.type = 'projectile'; proj.size = 5; proj.color = e.color; proj.life = 150; proj.hp = 1; proj.active = true; s.enemies.push(proj); } } const spd = Math.hypot(e.vx, e.vy); if (spd > e.speed) { e.vx = (e.vx / spd) * e.speed; e.vy = (e.vy / spd) * e.speed; } e.x += e.vx * s.timeScale; e.y += e.vy * s.timeScale; } 
-      else { const accel = e.type === 'tank' ? 0.15 : 0.2; e.vx += Math.cos(toPlayerAng) * accel; e.vy += Math.sin(toPlayerAng) * accel; if (s.quality !== 'LOW') { const nearby = s.spatialGrid.queryRadius(e.x, e.y, e.size * 3); for (const other of nearby) { if (other.id !== e.id && other.type !== 'projectile' && other.active) { const d = Utils.dist(e.x, e.y, other.x, other.y); if (d < e.size * 2 && d > 0) { const pa = Math.atan2(e.y - other.y, e.x - other.x); e.vx += Math.cos(pa) * 0.3; e.vy += Math.sin(pa) * 0.3; } } } } const spd = Math.hypot(e.vx, e.vy); if (spd > e.speed) { e.vx = (e.vx / spd) * e.speed; e.vy = (e.vy / spd) * e.speed; } e.x += e.vx * s.timeScale; e.y += e.vy * s.timeScale; }
-      if (e.type !== 'boss') { const spd = Math.hypot(e.vx, e.vy); if (spd > e.speed) { e.vx = (e.vx / spd) * e.speed; e.vy = (e.vy / spd) * e.speed; } e.x += e.vx * s.timeScale; e.y += e.vy * s.timeScale; }
-      if (p.invuln <= 0 && Utils.dist(e.x, e.y, p.x, p.y) < e.size + CONFIG.PLAYER.COLLISION_RADIUS) { const damage = e.type === 'boss' ? 40 : 15; s.player.hp -= damage; s.shake = 15; s.player.invuln = CONFIG.PLAYER.INVULN_ON_HIT; s.player.hitFlash = 10; s.combo = 0; s.comboTimer = 0; callbacks.playSound('hit'); createShockwave(s, s.player.x, s.player.y, 100, '#ff0000', 10); if (s.player.hp <= 0) { s.gameOver = true; callbacks.playSound('gameover'); const runData = { score: Math.floor(s.score), wave: s.wave, level: s.player.level, duration: s.runDuration, upgrades: Array.from(s.upgradeStacks.entries()).map(([id, count]) => ({ id, count })), weapon: s.player.weapon }; callbacks.onGameOver(runData); } }
+      // 4. Player Collision
+      if (p.invuln <= 0 && e.type !== 'projectile' && Utils.dist(e.x, e.y, p.x, p.y) < e.size + CONFIG.PLAYER.COLLISION_RADIUS) {
+          const damage = e.type === 'boss' ? 40 : 15;
+          p.hp -= damage;
+          s.shake = 15;
+          p.invuln = CONFIG.PLAYER.INVULN_ON_HIT;
+          p.hitFlash = 10;
+          s.combo = 0;
+          s.comboTimer = 0;
+          callbacks.playSound('hit');
+          createShockwave(s, p.x, p.y, 100, '#ff0000', 10);
+
+          if (p.hp <= 0) {
+              s.gameOver = true;
+              callbacks.playSound('gameover');
+              const runData = {
+                  score: Math.floor(s.score),
+                  wave: s.wave,
+                  level: p.level,
+                  duration: s.runDuration,
+                  upgrades: Array.from(s.upgradeStacks.entries()).map(([id, count]) => ({ id, count })),
+                  weapon: p.weapon
+              };
+              callbacks.onGameOver(runData);
+          }
+      }
     }
     
     // Cleanup Logic
