@@ -7,6 +7,7 @@ import { Director } from './director';
 import { Physics } from './physics';
 import { ParticleSystem } from './particles';
 import { MPMSystem } from './mpm';
+import { SpringCamera } from './camera';
 
 // --- POOLS & FACTORIES ---
 export const Factories = {
@@ -88,6 +89,7 @@ export function createGameState(width: number, height: number): GameState {
         visualGrid: new VisualGrid(width, height),
         particleSystem: new ParticleSystem(CONFIG.POOLS.PARTICLES.max), // Initialize new system
         mpmSystem: new MPMSystem(width, height), // Initialize MPM System
+        camera: new SpringCamera(), // Initialize Camera
     };
     resetPlayer(s.player, width, height);
     return s;
@@ -98,6 +100,7 @@ export const createExplosion = (s: GameState, x: number, y: number, color: strin
     if (s.visualGrid) {
         s.visualGrid.applyForce(x, y, 150 * speed, 50 * speed);
         s.visualGrid.addDensity(x, y, 50 * speed);
+        if(s.visualGrid.addHeat) s.visualGrid.addHeat(x, y, 100 * speed); // Inject Heat
     }
     // Delegate to Smart Particle System
     if (s.particleSystem) {
@@ -273,7 +276,25 @@ export function updateGame(s: GameState, callbacks: GameCallbacks) {
     s.timeScale = Utils.lerp(s.timeScale, 1, 0.05);
     s.runDuration = Math.floor((Date.now() - s.startTime) / 1000);
     if (s.comboTimer > 0) { s.comboTimer--; if (s.comboTimer === 0) s.combo = 0; }
-    if (s.shake > 0) { s.shake *= 0.9; if (s.shake < 0.1) s.shake = 0; }
+
+    // Camera Update
+    if (s.camera) {
+        // Dynamic Target: Centered on player + Mouse Lookahead
+        let targetX = 0; let targetY = 0;
+        if (!s.autoMode) {
+             const lookX = (s.mouse.x - s.width/2) * 0.1;
+             const lookY = (s.mouse.y - s.height/2) * 0.1;
+             targetX = lookX; targetY = lookY;
+        }
+        s.camera.targetX = targetX; s.camera.targetY = targetY;
+        s.camera.update(1.0); // Assume 60fps delta
+
+        // Decay legacy shake for compatibility, but camera handles most
+        if (s.shake > 0) { s.camera.shake(s.shake); s.shake *= 0.9; if (s.shake < 0.1) s.shake = 0; }
+    } else {
+        if (s.shake > 0) { s.shake *= 0.9; if (s.shake < 0.1) s.shake = 0; }
+    }
+
     if (s.screenFlash > 0) { s.screenFlash -= 0.03; if(s.screenFlash < 0) s.screenFlash = 0; }
 
     const step = s.quality === 'LOW' ? 3 : s.quality === 'MEDIUM' ? 2 : 1;
@@ -364,7 +385,10 @@ export function updateGame(s: GameState, callbacks: GameCallbacks) {
     // Ult Logic
     const triggerUlt = s.autoMode ? autoUlt : (s.keys.f && s.overdrive >= 100);
     if (triggerUlt && s.overdrive >= 100) {
-        s.overdrive = 0; callbacks.playSound('ultimate'); createShockwave(s, p.x, p.y, 1500, CONFIG.COLORS.ULTIMATE, 25); s.shake = 30;
+        s.overdrive = 0; callbacks.playSound('ultimate'); createShockwave(s, p.x, p.y, 1500, CONFIG.COLORS.ULTIMATE, 25);
+        if (s.camera) s.camera.kick(0, 0, 0.1, -0.2); // Big zoom kick
+        else s.shake = 30;
+
         // Warp the Ether on Ult
         s.visualGrid.applyForce(p.x, p.y, 600, 200);
         s.bullets.forEach(b => { s.pools.bullets.release(b); }); s.bullets = [];
@@ -426,7 +450,14 @@ export function updateGame(s: GameState, callbacks: GameCallbacks) {
       const count = (arch.count || 1) + p.stats.multishot;
       for (let i = 1; i < count; i++) { const spread = (i % 2 === 0 ? 1 : -1) * Math.ceil(i / 2) * (arch.spread || 0.1); fireBullet(spread); }
       p.cd = Math.max(2, 20 / p.stats.fireRateMod * arch.fireDelay);
-      s.shake = arch.name === 'Rail Driver' ? 5 : 2;
+
+      // Recoil
+      const kick = arch.name === 'Rail Driver' ? 10 : 2;
+      const kx = Math.cos(p.angle) * kick;
+      const ky = Math.sin(p.angle) * kick;
+      if (s.camera) s.camera.kick(kx * 0.5, ky * 0.5, 0, 0.02); // Camera kick + zoom punch
+      else s.shake = kick;
+
       p.vx -= Math.cos(p.angle) * 0.8; p.vy -= Math.sin(p.angle) * 0.8;
     }
 

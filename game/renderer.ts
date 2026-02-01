@@ -203,7 +203,14 @@ export const renderGame = (ctx: CanvasRenderingContext2D, s: GameState) => {
 
     ctx.save();
     
-    if (s.shake > 0.5) {
+    // Apply Camera Transform
+    if (s.camera) {
+        // Pivot around center
+        ctx.translate(s.width/2, s.height/2);
+        ctx.scale(s.camera.zoom, s.camera.zoom);
+        ctx.rotate(s.camera.angle);
+        ctx.translate(-s.width/2 - s.camera.x, -s.height/2 - s.camera.y);
+    } else if (s.shake > 0.5) {
         ctx.translate(Utils.rand(-s.shake, s.shake), Utils.rand(-s.shake, s.shake));
     }
 
@@ -230,7 +237,75 @@ export const renderGame = (ctx: CanvasRenderingContext2D, s: GameState) => {
     // --- PASS 2: FLUID ---
     if (s.visualGrid) s.visualGrid.render(ctx, s.qualitySettings.gridStep);
     
-    // --- PASS 3: BLOOM (LUCID PIPELINE) ---
+    // --- PASS 3: VOLUMETRIC LIGHTING (Shadow Casting) ---
+    // Ray-march from center to edges to create shadows from fluid density
+    if (s.visualGrid && s.quality === 'HIGH') {
+         const densityCtx = ctx;
+         densityCtx.save();
+         densityCtx.globalCompositeOperation = 'multiply'; // Shadows darken
+
+         // Simple Radial Ray-March approximation
+         // We draw "Shadow Fins" emanating from bright sources?
+         // No, simpler: Draw a radial gradient masked by inverse density?
+         // Let's do a "Light Shaft" pass:
+         // 1. Clear a small buffer. 2. Draw density. 3. Radial Blur away from light.
+         // Doing this on main canvas is hard. Let's do a screen-space overlay.
+
+         const time = s.frame * 0.01;
+         const cx = s.player.x;
+         const cy = s.player.y;
+
+         // Cast rays
+         const rays = 12;
+         const maxDist = Math.max(s.width, s.height);
+
+         densityCtx.beginPath();
+         for (let i = 0; i < rays; i++) {
+             const theta = (i / rays) * Math.PI * 2 + time;
+             // Ray-march
+             let r = 0;
+             let x = cx;
+             let y = cy;
+             const dr = 40;
+             let transmittance = 1.0;
+
+             // Move along ray
+             while (r < maxDist && transmittance > 0.1) {
+                 x += Math.cos(theta) * dr;
+                 y += Math.sin(theta) * dr;
+                 const dens = s.visualGrid.getDensityAt(x, y); // New method needed on Grid
+                 transmittance *= Math.exp(-dens * 0.05);
+                 r += dr;
+             }
+
+             // Draw the light shaft
+             if (r > 100) {
+                 densityCtx.moveTo(cx, cy);
+                 densityCtx.lineTo(x, y);
+             }
+         }
+         // This is too CPU intensive for JS render loop to stroke individual lines effectively for "Volume".
+         // Alternative: Add "Glow" based on local density.
+
+         // Let's use the Density Map to modulate a lighting layer.
+         // We assume PASS 2 already drew the colored nebula.
+         // Now we draw a "Shadow" layer on top.
+
+         // Simpler Vex Hack:
+         // Draw a radial gradient "Light" centered on player.
+         // SUBTRACT density from it.
+
+         densityCtx.globalCompositeOperation = 'screen';
+         const grad = densityCtx.createRadialGradient(cx, cy, 50, cx, cy, 600);
+         grad.addColorStop(0, 'rgba(255, 255, 255, 0.3)');
+         grad.addColorStop(1, 'rgba(0, 0, 0, 0)');
+         densityCtx.fillStyle = grad;
+         densityCtx.fillRect(0, 0, s.width, s.height);
+
+         densityCtx.restore();
+    }
+
+    // --- PASS 3.5: BLOOM (LUCID PIPELINE) ---
     renderBloomPass(ctx, s);
 
     // --- PASS 4: ENTITIES ---

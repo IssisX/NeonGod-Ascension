@@ -70,6 +70,10 @@ export class VisualGrid {
   vx0: Float32Array;
   vy0: Float32Array;
 
+  // Thermodynamic Field
+  temperature: Float32Array;
+  temperaturePrev: Float32Array;
+
   particles: EtherParticle[];
 
   constructor(width: number, height: number, cellSize = CONFIG.ETHER.CELL_SIZE) {
@@ -91,6 +95,9 @@ export class VisualGrid {
     this.vx0 = new Float32Array(count);
     this.vy0 = new Float32Array(count);
 
+    this.temperature = new Float32Array(count);
+    this.temperaturePrev = new Float32Array(count);
+
     this.particles = [];
     this.rebuild(width, height);
   }
@@ -108,12 +115,14 @@ export class VisualGrid {
         this.b = new Float32Array(count); this.bPrev = new Float32Array(count);
         this.vx = new Float32Array(count); this.vy = new Float32Array(count);
         this.vx0 = new Float32Array(count); this.vy0 = new Float32Array(count);
+        this.temperature = new Float32Array(count); this.temperaturePrev = new Float32Array(count);
     } else {
         this.r.fill(0); this.rPrev.fill(0);
         this.g.fill(0); this.gPrev.fill(0);
         this.b.fill(0); this.bPrev.fill(0);
         this.vx.fill(0); this.vy.fill(0);
         this.vx0.fill(0); this.vy0.fill(0);
+        this.temperature.fill(0); this.temperaturePrev.fill(0);
     }
     
     // Initialize Particles
@@ -135,6 +144,15 @@ export class VisualGrid {
   }
 
   // Add RGB density from a hex color or default
+  addHeat(x: number, y: number, amount: number) {
+      const cx = Math.floor(x / this.size);
+      const cy = Math.floor(y / this.size);
+      if (cx >= 0 && cx < this.cols && cy >= 0 && cy < this.rows) {
+          const idx = this.IX(cx, cy);
+          this.temperature[idx] += amount;
+      }
+  }
+
   addDensity(x: number, y: number, amount: number, colorHex: string = '#ffffff') {
       const cx = Math.floor(x / this.size);
       const cy = Math.floor(y / this.size);
@@ -315,12 +333,41 @@ export class VisualGrid {
       return { vx, vy };
   }
 
+  // Get interpolated density at world position (for lighting)
+  getDensityAt(x: number, y: number): number {
+      const cx = x / this.size;
+      const cy = y / this.size;
+      if (cx < 0.5 || cx >= this.cols - 1.5 || cy < 0.5 || cy >= this.rows - 1.5) return 0;
+      const i0 = Math.floor(cx); const i1 = i0 + 1;
+      const j0 = Math.floor(cy); const j1 = j0 + 1;
+      const s1 = cx - i0; const s0 = 1.0 - s1;
+      const t1 = cy - j0; const t0 = 1.0 - t1;
+
+      // Sum RGB channels for total obstruction
+      const getSum = (idx: number) => this.r[idx] + this.g[idx] + this.b[idx];
+
+      const d = s0 * (t0 * getSum(this.IX(i0, j0)) + t1 * getSum(this.IX(i0, j1))) +
+                s1 * (t0 * getSum(this.IX(i1, j0)) + t1 * getSum(this.IX(i1, j1)));
+      return d;
+  }
+
   update(dt = 0.1) {
-      // 0. Apply Drag
+      // 0. Apply Drag & Buoyancy
       for(let i=0; i<this.vx.length; i++) {
           this.vx[i] *= 0.99;
           this.vy[i] *= 0.99;
+
+          // Buoyancy: Heat rises (y is down in canvas usually? check logic)
+          // If y=0 is top, heat rises means y decreases.
+          if (this.temperature[i] > 0.01) {
+              this.vy[i] -= this.temperature[i] * 0.05; // Upward force
+              this.temperature[i] *= 0.96; // Cooling
+          }
       }
+
+      // 0.5. Solve Temperature
+      this.diffuse(0, this.temperaturePrev, this.temperature, 0.001, dt);
+      this.advect(0, this.temperature, this.temperaturePrev, this.vx, this.vy, dt);
 
       // 1. Solve Velocity
       this.diffuse(1, this.vx0, this.vx, 0.0001, dt);
@@ -383,9 +430,18 @@ export class VisualGrid {
 
             if (total > 5) { // Threshold
                 const alpha = Math.min(0.4, total * 0.002);
+
+                // Heat Visualization (Blackbody-ish shift)
+                let temp = this.temperature[idx];
+                let hr = 0, hg = 0;
+                if (temp > 0) {
+                    hr = Math.min(255, temp * 50);
+                    hg = Math.min(100, temp * 20);
+                }
+
                 // Normalized Color
-                const nr = Math.min(255, r * 2);
-                const ng = Math.min(255, g * 2);
+                const nr = Math.min(255, r * 2 + hr);
+                const ng = Math.min(255, g * 2 + hg);
                 const nb = Math.min(255, b * 2);
 
                 ctx.fillStyle = `rgba(${nr}, ${ng}, ${nb}, ${alpha})`;

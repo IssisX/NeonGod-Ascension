@@ -217,6 +217,7 @@ export interface GameState {
   visualGrid: any;
   particleSystem: any; // NEW
   mpmSystem: any; // NEW: Material Point Method System
+  camera: any; // NEW: SpringCamera
 }
 
 export interface UpgradeOption {
