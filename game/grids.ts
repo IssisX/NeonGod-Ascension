@@ -49,8 +49,7 @@ interface EtherParticle {
   color: string;
 }
 
-// Navier-Stokes Fluid Solver
-// Based on Jos Stam's "Real-Time Fluid Dynamics for Games"
+// Navier-Stokes Fluid Solver (RGB Variant)
 export class VisualGrid {
   size: number;
   N: number;
@@ -60,9 +59,12 @@ export class VisualGrid {
   cols: number;
   rows: number;
 
-  // Fluid Fields
-  density: Float32Array;
-  s: Float32Array; // Previous density
+  // Color Density Fields (R, G, B)
+  r: Float32Array; rPrev: Float32Array;
+  g: Float32Array; gPrev: Float32Array;
+  b: Float32Array; bPrev: Float32Array;
+
+  // Velocity Field
   vx: Float32Array;
   vy: Float32Array;
   vx0: Float32Array;
@@ -76,11 +78,14 @@ export class VisualGrid {
     this.height = height;
     this.cols = Math.ceil(width / cellSize) + 2;
     this.rows = Math.ceil(height / cellSize) + 2;
-    this.iter = 4; // Solver iterations (lower = faster, higher = more accurate)
+    this.iter = 4;
 
     const count = this.cols * this.rows;
-    this.density = new Float32Array(count);
-    this.s = new Float32Array(count);
+    // 3 Channels for RGB Density
+    this.r = new Float32Array(count); this.rPrev = new Float32Array(count);
+    this.g = new Float32Array(count); this.gPrev = new Float32Array(count);
+    this.b = new Float32Array(count); this.bPrev = new Float32Array(count);
+
     this.vx = new Float32Array(count);
     this.vy = new Float32Array(count);
     this.vx0 = new Float32Array(count);
@@ -97,16 +102,16 @@ export class VisualGrid {
     this.rows = Math.ceil(height / this.size) + 2;
 
     const count = this.cols * this.rows;
-    if (this.density.length !== count) {
-        this.density = new Float32Array(count);
-        this.s = new Float32Array(count);
-        this.vx = new Float32Array(count);
-        this.vy = new Float32Array(count);
-        this.vx0 = new Float32Array(count);
-        this.vy0 = new Float32Array(count);
+    if (this.r.length !== count) {
+        this.r = new Float32Array(count); this.rPrev = new Float32Array(count);
+        this.g = new Float32Array(count); this.gPrev = new Float32Array(count);
+        this.b = new Float32Array(count); this.bPrev = new Float32Array(count);
+        this.vx = new Float32Array(count); this.vy = new Float32Array(count);
+        this.vx0 = new Float32Array(count); this.vy0 = new Float32Array(count);
     } else {
-        // Clear existing
-        this.density.fill(0); this.s.fill(0);
+        this.r.fill(0); this.rPrev.fill(0);
+        this.g.fill(0); this.gPrev.fill(0);
+        this.b.fill(0); this.bPrev.fill(0);
         this.vx.fill(0); this.vy.fill(0);
         this.vx0.fill(0); this.vy0.fill(0);
     }
@@ -125,23 +130,40 @@ export class VisualGrid {
     }
   }
 
-  // --- SOLVER METHODS ---
-
   IX(x: number, y: number) {
       return x + y * this.cols;
   }
 
-  addDensity(x: number, y: number, amount: number) {
+  // Add RGB density from a hex color or default
+  addDensity(x: number, y: number, amount: number, colorHex: string = '#ffffff') {
       const cx = Math.floor(x / this.size);
       const cy = Math.floor(y / this.size);
+
+      // Parse Hex to RGB (0-1 approx)
+      let r = 1, g = 1, b = 1;
+      if (colorHex.startsWith('#')) {
+          const hex = colorHex.substring(1);
+          const bigint = parseInt(hex, 16);
+          if (hex.length === 6) {
+              r = ((bigint >> 16) & 255) / 255;
+              g = ((bigint >> 8) & 255) / 255;
+              b = (bigint & 255) / 255;
+          }
+      }
+
       if (cx >= 0 && cx < this.cols && cy >= 0 && cy < this.rows) {
         const idx = this.IX(cx, cy);
-        this.density[idx] += amount;
-        if(this.density[idx] > 255) this.density[idx] = 255;
+        this.r[idx] += amount * r;
+        this.g[idx] += amount * g;
+        this.b[idx] += amount * b;
+
+        // Cap
+        if(this.r[idx] > 255) this.r[idx] = 255;
+        if(this.g[idx] > 255) this.g[idx] = 255;
+        if(this.b[idx] > 255) this.b[idx] = 255;
       }
   }
 
-  // Remove density (Cavitation)
   removeDensity(x: number, y: number, radius: number) {
       const cx = Math.floor(x / this.size);
       const cy = Math.floor(y / this.size);
@@ -152,7 +174,10 @@ export class VisualGrid {
               const idxX = cx + i;
               const idxY = cy + j;
               if (idxX >= 0 && idxX < this.cols && idxY >= 0 && idxY < this.rows) {
-                  this.density[this.IX(idxX, idxY)] *= 0.5; // Diminish rapidly
+                  const idx = this.IX(idxX, idxY);
+                  this.r[idx] *= 0.5;
+                  this.g[idx] *= 0.5;
+                  this.b[idx] *= 0.5;
               }
           }
       }
@@ -168,7 +193,6 @@ export class VisualGrid {
       }
   }
 
-  // Inject radial force (e.g., explosions)
   applyForce(x: number, y: number, radius: number, strength: number) {
       const cx = Math.floor(x / this.size);
       const cy = Math.floor(y / this.size);
@@ -188,9 +212,10 @@ export class VisualGrid {
                       const d = Math.sqrt(dSq);
                       const f = (1 - d/radius) * strength;
                       const ang = Math.atan2(dy, dx);
-                      this.vx[this.IX(idxX, idxY)] += Math.cos(ang) * f;
-                      this.vy[this.IX(idxX, idxY)] += Math.sin(ang) * f;
-                      this.density[this.IX(idxX, idxY)] += f * 0.1;
+                      const idx = this.IX(idxX, idxY);
+                      this.vx[idx] += Math.cos(ang) * f;
+                      this.vy[idx] += Math.sin(ang) * f;
+                      // Don't add density here, rely on explicit addDensity calls
                   }
               }
           }
@@ -216,8 +241,7 @@ export class VisualGrid {
   }
 
   project(velocX: Float32Array, velocY: Float32Array, p: Float32Array, div: Float32Array) {
-      const h = 1.0 / this.cols; // Assuming square cells roughly
-
+      const h = 1.0 / this.cols;
       for (let j = 1; j < this.rows - 1; j++) {
           for (let i = 1; i < this.cols - 1; i++) {
               div[this.IX(i, j)] = -0.5 * h * (velocX[this.IX(i+1, j)] - velocX[this.IX(i-1, j)] + velocY[this.IX(i, j+1)] - velocY[this.IX(i, j-1)]);
@@ -226,7 +250,7 @@ export class VisualGrid {
       }
       this.set_bnd(0, div);
       this.set_bnd(0, p);
-      this.lin_solve(0, p, div, 1, 6); // Poisson equation
+      this.lin_solve(0, p, div, 1, 6);
 
       for (let j = 1; j < this.rows - 1; j++) {
           for (let i = 1; i < this.cols - 1; i++) {
@@ -248,16 +272,12 @@ export class VisualGrid {
           for (let i = 1; i < this.cols - 1; i++) {
               x = i - dtx * velocX[this.IX(i, j)];
               y = j - dty * velocY[this.IX(i, j)];
-
               if (x < 0.5) x = 0.5; if (x > this.cols - 1.5) x = this.cols - 1.5;
               i0 = Math.floor(x); i1 = i0 + 1;
-
               if (y < 0.5) y = 0.5; if (y > this.rows - 1.5) y = this.rows - 1.5;
               j0 = Math.floor(y); j1 = j0 + 1;
-
               s1 = x - i0; s0 = 1.0 - s1;
               t1 = y - j0; t0 = 1.0 - t1;
-
               d[this.IX(i, j)] = s0 * (t0 * d0[this.IX(i0, j0)] + t1 * d0[this.IX(i0, j1)]) +
                                  s1 * (t0 * d0[this.IX(i1, j0)] + t1 * d0[this.IX(i1, j1)]);
           }
@@ -274,73 +294,67 @@ export class VisualGrid {
           x[this.IX(0, j)] = b === 1 ? -x[this.IX(1, j)] : x[this.IX(1, j)];
           x[this.IX(this.cols - 1, j)] = b === 1 ? -x[this.IX(this.cols - 2, j)] : x[this.IX(this.cols - 2, j)];
       }
-
       x[this.IX(0, 0)] = 0.5 * (x[this.IX(1, 0)] + x[this.IX(0, 1)]);
       x[this.IX(0, this.rows - 1)] = 0.5 * (x[this.IX(1, this.rows - 1)] + x[this.IX(0, this.rows - 2)]);
       x[this.IX(this.cols - 1, 0)] = 0.5 * (x[this.IX(this.cols - 2, 0)] + x[this.IX(this.cols - 1, 1)]);
       x[this.IX(this.cols - 1, this.rows - 1)] = 0.5 * (x[this.IX(this.cols - 2, this.rows - 1)] + x[this.IX(this.cols - 1, this.rows - 2)]);
   }
 
-  // Retrieve velocity at world coordinate (bilinear interpolation)
   getVelocityAt(x: number, y: number): { vx: number, vy: number } {
       const cx = x / this.size;
       const cy = y / this.size;
-
       if (cx < 0.5 || cx >= this.cols - 1.5 || cy < 0.5 || cy >= this.rows - 1.5) return { vx: 0, vy: 0 };
-
       const i0 = Math.floor(cx); const i1 = i0 + 1;
       const j0 = Math.floor(cy); const j1 = j0 + 1;
-
       const s1 = cx - i0; const s0 = 1.0 - s1;
       const t1 = cy - j0; const t0 = 1.0 - t1;
-
       const vx = s0 * (t0 * this.vx[this.IX(i0, j0)] + t1 * this.vx[this.IX(i0, j1)]) +
                  s1 * (t0 * this.vx[this.IX(i1, j0)] + t1 * this.vx[this.IX(i1, j1)]);
-
       const vy = s0 * (t0 * this.vy[this.IX(i0, j0)] + t1 * this.vy[this.IX(i0, j1)]) +
                  s1 * (t0 * this.vy[this.IX(i1, j0)] + t1 * this.vy[this.IX(i1, j1)]);
-
       return { vx, vy };
   }
 
   update(dt = 0.1) {
-      // 0. Apply Drag (Decay)
+      // 0. Apply Drag
       for(let i=0; i<this.vx.length; i++) {
           this.vx[i] *= 0.99;
           this.vy[i] *= 0.99;
       }
 
       // 1. Solve Velocity
-      // Swap pointers if we were in C++, here we just copy/swap logic implicitly by passing args
-      // Diffuse
       this.diffuse(1, this.vx0, this.vx, 0.0001, dt);
       this.diffuse(2, this.vy0, this.vy, 0.0001, dt);
-
-      // Project
-      this.project(this.vx0, this.vy0, this.vx, this.vy); // Use vx/vy as scratch
-
-      // Advect
+      this.project(this.vx0, this.vy0, this.vx, this.vy);
       this.advect(1, this.vx, this.vx0, this.vx0, this.vy0, dt);
       this.advect(2, this.vy, this.vy0, this.vx0, this.vy0, dt);
-
-      // Project
       this.project(this.vx, this.vy, this.vx0, this.vy0);
 
-      // 2. Solve Density
-      this.diffuse(0, this.s, this.density, 0.0001, dt);
-      this.advect(0, this.density, this.s, this.vx, this.vy, dt);
+      // 2. Solve Density (RGB Channels Independently)
+      // Red
+      this.diffuse(0, this.rPrev, this.r, 0.0001, dt);
+      this.advect(0, this.r, this.rPrev, this.vx, this.vy, dt);
+      // Green
+      this.diffuse(0, this.gPrev, this.g, 0.0001, dt);
+      this.advect(0, this.g, this.gPrev, this.vx, this.vy, dt);
+      // Blue
+      this.diffuse(0, this.bPrev, this.b, 0.0001, dt);
+      this.advect(0, this.b, this.bPrev, this.vx, this.vy, dt);
 
       // 3. Fade Density
-      for(let i=0; i<this.density.length; i++) this.density[i] *= 0.99;
+      for(let i=0; i<this.r.length; i++) {
+          this.r[i] *= 0.985;
+          this.g[i] *= 0.985;
+          this.b[i] *= 0.985;
+      }
 
-      // 4. Update Particles (Advect them by fluid velocity)
+      // 4. Update Particles
       for (const p of this.particles) {
           const v = this.getVelocityAt(p.x, p.y);
-          p.vx = p.vx * 0.9 + v.vx * 50 * 0.1; // Fluid pushes particles
+          p.vx = p.vx * 0.9 + v.vx * 50 * 0.1;
           p.vy = p.vy * 0.9 + v.vy * 50 * 0.1;
           p.x += p.vx;
           p.y += p.vy;
-
           if (p.x < 0) p.x += this.width;
           if (p.x > this.width) p.x -= this.width;
           if (p.y < 0) p.y += this.height;
@@ -349,30 +363,45 @@ export class VisualGrid {
   }
 
   render(ctx: CanvasRenderingContext2D, step = 1) {
-    // Render Fluid Density as subtle background fog (The Aether)
+    // Render RGB Nebula
+    // Drawing thousands of rects is slow.
+    // Optimization: Draw to an ImageData buffer and put it?
+    // Or just threshold heavily.
+
+    // For 2D Canvas, `putImageData` is fastest for per-pixel operations.
+    // But since `cellSize` is likely large (e.g. 32px or 64px), rects are fine.
+    // Let's assume cellSize ~64. 1920/64 = 30 cols. 30*20 = 600 rects. Very fast.
+
     for (let j = 0; j < this.rows; j++) {
         for (let i = 0; i < this.cols; i++) {
-            const d = this.density[this.IX(i, j)];
-            if (d > 0.1) { // Threshold to save draw calls
-                // Density mapping: Low -> Deep Blue, High -> Cyan/White
-                const alpha = Math.min(0.3, d * 0.005);
-                ctx.fillStyle = `rgba(0, 243, 255, ${alpha})`;
-                // Overlap slightly to avoid grid lines
+            const idx = this.IX(i, j);
+            const r = this.r[idx];
+            const g = this.g[idx];
+            const b = this.b[idx];
+
+            const total = r + g + b;
+
+            if (total > 5) { // Threshold
+                const alpha = Math.min(0.4, total * 0.002);
+                // Normalized Color
+                const nr = Math.min(255, r * 2);
+                const ng = Math.min(255, g * 2);
+                const nb = Math.min(255, b * 2);
+
+                ctx.fillStyle = `rgba(${nr}, ${ng}, ${nb}, ${alpha})`;
+                // Slight overlap
                 ctx.fillRect(i * this.size - 1, j * this.size - 1, this.size + 2, this.size + 2);
             }
         }
     }
 
-    // Render Particles as Flow Vectors
+    // Render Particles
     ctx.lineWidth = 1;
     for (const p of this.particles) {
         const speed = Math.hypot(p.vx, p.vy);
         const alpha = Math.min(0.8, p.alpha + speed * 0.2);
-        
         ctx.strokeStyle = p.color;
         ctx.globalAlpha = alpha;
-        
-        // Draw as trail/streak aligned with velocity
         if (speed > 1.0) {
             ctx.beginPath();
             ctx.moveTo(p.x, p.y);

@@ -334,8 +334,8 @@ export function updateGame(s: GameState, callbacks: GameCallbacks) {
                 part.life = 15; part.maxLife = 15; part.color = '#00f3ff'; part.size = Utils.rand(2, 5);
                 part.friction = 0.9; part.type = 'glow'; part.active = true;
                 s.particles.push(part);
-                // Thrusters add fluid density
-                s.visualGrid.addDensity(part.x, part.y, 20);
+                // Thrusters add colored fluid density
+                s.visualGrid.addDensity(part.x, part.y, 30, '#00f3ff');
                 s.visualGrid.addVelocity(part.x, part.y, part.vx * 2, part.vy * 2);
             }
         };
@@ -381,7 +381,7 @@ export function updateGame(s: GameState, callbacks: GameCallbacks) {
       p.vx = dmx * CONFIG.PLAYER.DASH.SPEED; p.vy = dmy * CONFIG.PLAYER.DASH.SPEED;
       // Dash Wake in Fluid
       s.visualGrid.addVelocity(p.x, p.y, p.vx * 4, p.vy * 4);
-      s.visualGrid.addDensity(p.x, p.y, 100);
+      s.visualGrid.addDensity(p.x, p.y, 150, CONFIG.COLORS.PLAYER_DASH);
       
       createShockwave(s, p.x, p.y, 200, CONFIG.COLORS.PLAYER_DASH, 10);
       for (let i = 0; i < 5; i++) {
@@ -532,12 +532,31 @@ export function updateGame(s: GameState, callbacks: GameCallbacks) {
         if (b.homing > 0 && s.quality !== 'LOW') { let target = null, minD = 400; const nearby = s.spatialGrid.queryRadius(b.x, b.y, 400); for (const e of nearby) { if (e.type === 'projectile' || !e.active) continue; const d = Utils.dist(b.x, b.y, e.x, e.y); if (d < minD) { minD = d; target = e; } } if (target) { const wantAng = Math.atan2(target.y - b.y, target.x - b.x); const currAng = Math.atan2(b.vy, b.vx); const diff = Utils.angleDiff(currAng, wantAng); const newAng = currAng + diff * b.homing; const spd = Math.hypot(b.vx, b.vy); b.vx = Math.cos(newAng) * spd; b.vy = Math.sin(newAng) * spd; } } 
         b.x += b.vx * s.timeScale; b.y += b.vy * s.timeScale; b.life--;
 
-        // High velocity cavitation (tunneling)
+        // --- BALLISTIC CAVITATION & SINGULARITY PHYSICS ---
         const speed = Math.hypot(b.vx, b.vy);
-        if (speed > 10 && s.visualGrid) {
-            // Push fluid OUT from bullet path
-            s.visualGrid.applyForce(b.x, b.y, 20, speed * 0.5);
-            s.visualGrid.removeDensity(b.x, b.y, 10);
+        if (s.visualGrid) {
+            if (s.player.weapon === 'RAILGUN') {
+                // Fissure Effect: Extreme lateral force
+                const normX = -b.vy / speed; const normY = b.vx / speed;
+                s.visualGrid.addVelocity(b.x, b.y, normX * 100, normY * 100);
+                s.visualGrid.addDensity(b.x, b.y, 20, '#00ffff'); // Ionize path
+            } else if (s.player.weapon === 'VOID') {
+                // Singularity: Sucks density IN
+                s.visualGrid.applyForce(b.x, b.y, 50, -20); // Negative strength = suck
+                s.visualGrid.addDensity(b.x, b.y, 10, '#aa00ff');
+                // Pull Boids (Pseudo-Gravity)
+                const nearby = s.spatialGrid.queryRadius(b.x, b.y, 150);
+                for(const e of nearby) {
+                    if (e.active && e.type !== 'projectile') {
+                        const ang = Math.atan2(b.y - e.y, b.x - e.x);
+                        e.vx += Math.cos(ang) * 2; e.vy += Math.sin(ang) * 2;
+                    }
+                }
+            } else if (speed > 10) {
+                // Normal Cavitation
+                s.visualGrid.applyForce(b.x, b.y, 20, speed * 0.5);
+                s.visualGrid.removeDensity(b.x, b.y, 10);
+            }
         }
 
         if (b.life <= 0 || !Utils.inBounds(b.x, b.y, s.width, s.height, 50)) { s.pools.bullets.release(b); s.bullets.splice(bi, 1); continue; }
@@ -552,8 +571,11 @@ export function updateGame(s: GameState, callbacks: GameCallbacks) {
                     const comboBonus = 1 + s.combo * CONFIG.PROGRESSION.COMBO_BONUS; s.score += e.score * comboBonus; createGem(s, e.x, e.y, e.xp); callbacks.playSound('explosion'); 
                     createExplosion(s, e.x, e.y, e.color, e.isElite ? 25 : 15, e.isElite ? 2 : 1.2); 
                     createDebris(s, e.x, e.y, e.color, e.size); // Debris on death
-                    // Explosion interacts with Ether
-                    if (s.visualGrid) s.visualGrid.applyForce(e.x, e.y, e.size * 4, 30);
+                    // Explosion DYES the Ether
+                    if (s.visualGrid) {
+                        s.visualGrid.applyForce(e.x, e.y, e.size * 4, 30);
+                        s.visualGrid.addDensity(e.x, e.y, e.size * 5, e.color);
+                    }
                     
                     if (e.affixes.includes('SPLITTER')) { const count = CONFIG.AFFIXES.SPLITTER.count; for(let k=0; k<count; k++) { const m = s.pools.enemies.acquire(); if (m) { const a = (Math.PI*2/count)*k; m.id = Utils.uid('split'); m.x = e.x; m.y = e.y; m.vx = Math.cos(a)*4; m.vy = Math.sin(a)*4; m.hp = e.maxHp * 0.3; m.maxHp = m.hp; m.type = 'chaser'; m.speed = e.speed * 1.5; m.size = e.size * 0.6; m.color = CONFIG.AFFIXES.SPLITTER.color; m.active = true; m.dead = false; s.enemies.push(m); } } } 
                     if (e.isElite && Math.random() < 0.6) { createPickup(s, e.x, e.y); } 
