@@ -7,6 +7,7 @@ import { Utils } from '../utils';
 // O(1) insertion, O(1) lookup, Zero Garbage Collection during update loop.
 export class SpatialGrid {
   cellSize: number;
+  cellSizeInv: number;
   cols: number;
   rows: number;
   grid: Entity[][]; // Flat array of arrays
@@ -16,6 +17,7 @@ export class SpatialGrid {
 
   constructor(cellSize = 128) {
     this.cellSize = cellSize;
+    this.cellSizeInv = 1 / cellSize;
     this.results = [];
     this.grid = [];
     this.cols = 0;
@@ -28,8 +30,9 @@ export class SpatialGrid {
   resize(width: number, height: number) {
     this.width = width;
     this.height = height;
-    this.cols = Math.ceil(width / this.cellSize) + 1;
-    this.rows = Math.ceil(height / this.cellSize) + 1;
+    // Use inverse for optimized math
+    this.cols = Math.ceil(width * this.cellSizeInv) + 1;
+    this.rows = Math.ceil(height * this.cellSizeInv) + 1;
     
     // Pre-allocate buckets to avoid GC thrashing
     const size = this.cols * this.rows;
@@ -48,9 +51,9 @@ export class SpatialGrid {
   }
   
   insert(entity: Entity) {
-    // Fast Integer Math
-    const cx = (entity.x / this.cellSize) | 0; // Bitwise floor
-    const cy = (entity.y / this.cellSize) | 0;
+    // Fast Integer Math: Multiply by inverse
+    const cx = (entity.x * this.cellSizeInv) | 0;
+    const cy = (entity.y * this.cellSizeInv) | 0;
     
     // Boundary checks (handle off-screen entities gracefully)
     if (cx >= 0 && cx < this.cols && cy >= 0 && cy < this.rows) {
@@ -62,10 +65,10 @@ export class SpatialGrid {
   queryRadius(x: number, y: number, radius: number) {
     this.results.length = 0;
     
-    const minCx = Math.floor((x - radius) / this.cellSize);
-    const maxCx = Math.floor((x + radius) / this.cellSize);
-    const minCy = Math.floor((y - radius) / this.cellSize);
-    const maxCy = Math.floor((y + radius) / this.cellSize);
+    const minCx = Math.floor((x - radius) * this.cellSizeInv);
+    const maxCx = Math.floor((x + radius) * this.cellSizeInv);
+    const minCy = Math.floor((y - radius) * this.cellSizeInv);
+    const maxCy = Math.floor((y + radius) * this.cellSizeInv);
 
     // Optimized bounding box loop
     for (let cy = minCy; cy <= maxCy; cy++) {
@@ -101,6 +104,7 @@ interface EtherParticle {
 // Uses two buffers (read/write) to allow self-referential updates without artifacts.
 export class VisualGrid {
   cellSize: number;
+  cellSizeInv: number;
   cols: number;
   rows: number;
   width: number;
@@ -116,11 +120,12 @@ export class VisualGrid {
 
   constructor(width: number, height: number, cellSize = CONFIG.ETHER.CELL_SIZE) {
     this.cellSize = cellSize;
+    this.cellSizeInv = 1 / cellSize;
     this.width = width;
     this.height = height;
     
-    this.cols = Math.ceil(width / cellSize) + 2;
-    this.rows = Math.ceil(height / cellSize) + 2;
+    this.cols = Math.ceil(width * this.cellSizeInv) + 2;
+    this.rows = Math.ceil(height * this.cellSizeInv) + 2;
     
     const size = this.cols * this.rows;
     this.vx = [new Float32Array(size), new Float32Array(size)];
@@ -133,8 +138,8 @@ export class VisualGrid {
   rebuild(width: number, height: number) {
     this.width = width;
     this.height = height;
-    this.cols = Math.ceil(width / this.cellSize) + 2;
-    this.rows = Math.ceil(height / this.cellSize) + 2;
+    this.cols = Math.ceil(width * this.cellSizeInv) + 2;
+    this.rows = Math.ceil(height * this.cellSizeInv) + 2;
     
     const size = this.cols * this.rows;
     this.vx = [new Float32Array(size), new Float32Array(size)];
@@ -156,9 +161,9 @@ export class VisualGrid {
 
   // Inject energy into the CURRENT write buffer
   applyForce(x: number, y: number, radius: number, strength: number) {
-    const cx = Math.floor(x / this.cellSize);
-    const cy = Math.floor(y / this.cellSize);
-    const radCells = Math.ceil(radius / this.cellSize);
+    const cx = Math.floor(x * this.cellSizeInv);
+    const cy = Math.floor(y * this.cellSizeInv);
+    const radCells = Math.ceil(radius * this.cellSizeInv);
     const str = strength * 0.5;
 
     // Write to the current Read buffer immediately for instant feedback
@@ -194,8 +199,8 @@ export class VisualGrid {
   }
   
   addVelocity(x: number, y: number, vx: number, vy: number) {
-      const cx = (x / this.cellSize) | 0;
-      const cy = (y / this.cellSize) | 0;
+      const cx = (x * this.cellSizeInv) | 0;
+      const cy = (y * this.cellSizeInv) | 0;
       if (cx >= 0 && cx < this.cols && cy >= 0 && cy < this.rows) {
           const idx = cy * this.cols + cx;
           const fieldVx = this.vx[this.bufferIdx];
@@ -261,8 +266,8 @@ export class VisualGrid {
 
     for (const p of this.particles) {
         // Sample Grid Velocity
-        const cx = (p.x / this.cellSize) | 0;
-        const cy = (p.y / this.cellSize) | 0;
+        const cx = (p.x * this.cellSizeInv) | 0;
+        const cy = (p.y * this.cellSizeInv) | 0;
         
         let gvx = 0, gvy = 0;
         if (cx >= 0 && cx < this.cols && cy >= 0 && cy < this.rows) {
