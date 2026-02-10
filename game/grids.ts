@@ -182,11 +182,12 @@ export class VisualGrid {
              if (distSq < rSq) {
                  const dist = Math.sqrt(distSq);
                  const force = (1 - dist / radius) * str;
-                 const angle = Math.atan2(dy, dx);
                  
                  const idx = idxY * this.cols + idxX;
-                 fieldVx[idx] += Math.cos(angle) * force;
-                 fieldVy[idx] += Math.sin(angle) * force;
+                 if (dist > 0) {
+                     fieldVx[idx] += (dx / dist) * force;
+                     fieldVy[idx] += (dy / dist) * force;
+                 }
              }
         }
       }

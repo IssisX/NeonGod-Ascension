@@ -176,26 +176,28 @@ function calculateAutoPilot(s: GameState): { mx: number; my: number; aimAngle: n
 
     for (const e of nearby) {
         if (!e.active || e.dead || e.type === 'projectile') continue; 
-        const dist = Utils.dist(p.x, p.y, e.x, e.y);
+        const dSq = Utils.distSq(p.x, p.y, e.x, e.y);
+        const dist = Math.sqrt(dSq);
         if (e.type !== 'projectile' && dist < minEnemyDist) { minEnemyDist = dist; nearestEnemy = e; }
         if (dist < searchRadius) {
             const weight = (1 - dist / searchRadius);
             const force = weight * weight * (e.type === 'projectile' || e.type === 'kamikaze' ? 5.0 : 2.0); 
-            const angle = Math.atan2(p.y - e.y, p.x - e.x);
-            moveX += Math.cos(angle) * force; moveY += Math.sin(angle) * force;
+            const dx = p.x - e.x; const dy = p.y - e.y;
+            if (dist > 0) { moveX += (dx / dist) * force; moveY += (dy / dist) * force; }
             totalDanger += force;
         }
     }
 
     if (totalDanger < 3.0) {
         let nearestGem: Gem | Pickup | null = null;
-        let minGemDist = Infinity;
-        for (const pick of s.pickups) { if (!pick.active) continue; const dist = Utils.dist(p.x, p.y, pick.x, pick.y); if (dist < minGemDist) { minGemDist = dist; nearestGem = pick; } }
-        if (!nearestGem) { for (const g of s.gems) { if (!g.active) continue; const dist = Utils.dist(p.x, p.y, g.x, g.y); if (dist < minGemDist) { minGemDist = dist; nearestGem = g; } } }
+        let minGemDistSq = Infinity;
+        for (const pick of s.pickups) { if (!pick.active) continue; const dSq = Utils.distSq(p.x, p.y, pick.x, pick.y); if (dSq < minGemDistSq) { minGemDistSq = dSq; nearestGem = pick; } }
+        if (!nearestGem) { for (const g of s.gems) { if (!g.active) continue; const dSq = Utils.distSq(p.x, p.y, g.x, g.y); if (dSq < minGemDistSq) { minGemDistSq = dSq; nearestGem = g; } } }
         if (nearestGem) {
-            const angle = Math.atan2(nearestGem.y - p.y, nearestGem.x - p.x);
+            const dx = nearestGem.x - p.x; const dy = nearestGem.y - p.y;
+            const dist = Math.sqrt(minGemDistSq);
             const pullStrength = totalDanger < 1.0 ? 1.5 : 0.5;
-            moveX += Math.cos(angle) * pullStrength; moveY += Math.sin(angle) * pullStrength;
+            if (dist > 0) { moveX += (dx / dist) * pullStrength; moveY += (dy / dist) * pullStrength; }
         }
     }
 
@@ -208,11 +210,13 @@ function calculateAutoPilot(s: GameState): { mx: number; my: number; aimAngle: n
     let aimAngle = p.angle;
     if (!nearestEnemy) {
         // Fallback search if grid was empty (though grid is now robust)
+        let minEnemyDistSq = minEnemyDist * minEnemyDist;
         for (const e of s.enemies) {
             if (!e.active || e.dead || e.type === 'projectile') continue;
-            const dist = Utils.dist(p.x, p.y, e.x, e.y);
-            if (dist < minEnemyDist) { minEnemyDist = dist; nearestEnemy = e; }
+            const dSq = Utils.distSq(p.x, p.y, e.x, e.y);
+            if (dSq < minEnemyDistSq) { minEnemyDistSq = dSq; nearestEnemy = e; }
         }
+        minEnemyDist = Math.sqrt(minEnemyDistSq);
     }
 
     if (nearestEnemy) {
@@ -294,9 +298,11 @@ export function updateGame(s: GameState, callbacks: GameCallbacks) {
         Object.values(s.touches).forEach(t => {
           if (t.type === 'move') {
             const dx = t.x - t.originX, dy = t.y - t.originY;
-            const ang = Math.atan2(dy, dx);
-            const dist = Math.min(50, Utils.dist(0, 0, dx, dy)) / 50;
-            mx += Math.cos(ang) * dist; my += Math.sin(ang) * dist;
+            const d = Math.hypot(dx, dy);
+            if (d > 0) {
+                const distFactor = Math.min(50, d) / 50;
+                mx += (dx / d) * distFactor; my += (dy / d) * distFactor;
+            }
           }
         });
         const mag = Math.hypot(mx, my);
@@ -423,42 +429,135 @@ export function updateGame(s: GameState, callbacks: GameCallbacks) {
       if (Math.abs(e.vx) > 0.1 || Math.abs(e.vy) > 0.1) { s.visualGrid.addVelocity(e.x, e.y, e.vx * 0.5, e.vy * 0.5); }
       if (e.hitFlash > 0) e.hitFlash--;
       if (e.spawnAnim < 1) e.spawnAnim = Math.min(1, e.spawnAnim + 0.05);
-      const toPlayerAng = Math.atan2(p.y - e.y, p.x - e.x);
-      const distToPlayer = Utils.dist(e.x, e.y, p.x, p.y);
+
+      const dxToP = p.x - e.x;
+      const dyToP = p.y - e.y;
+      const distSqToPlayer = dxToP * dxToP + dyToP * dyToP;
 
       if (e.isElite && e.affixes.length > 0) {
           e.affixTimer++;
           for (const affix of e.affixes) {
-              if (affix === 'VORTEX') { if (distToPlayer < CONFIG.AFFIXES.VORTEX.range) { const pull = CONFIG.AFFIXES.VORTEX.force; p.vx -= Math.cos(toPlayerAng) * pull; p.vy -= Math.sin(toPlayerAng) * pull; } } 
-              else if (affix === 'REPULSOR') { if (distToPlayer < CONFIG.AFFIXES.REPULSOR.range) { const push = CONFIG.AFFIXES.REPULSOR.force; p.vx += Math.cos(toPlayerAng) * push; p.vy += Math.sin(toPlayerAng) * push; } } 
+              if (affix === 'VORTEX') {
+                  const r = CONFIG.AFFIXES.VORTEX.range;
+                  if (distSqToPlayer < r * r) {
+                      const d = Math.sqrt(distSqToPlayer);
+                      const pull = CONFIG.AFFIXES.VORTEX.force;
+                      if (d > 0) { p.vx -= (dxToP / d) * pull; p.vy -= (dyToP / d) * pull; }
+                  }
+              }
+              else if (affix === 'REPULSOR') {
+                  const r = CONFIG.AFFIXES.REPULSOR.range;
+                  if (distSqToPlayer < r * r) {
+                      const d = Math.sqrt(distSqToPlayer);
+                      const push = CONFIG.AFFIXES.REPULSOR.force;
+                      if (d > 0) { p.vx += (dxToP / d) * push; p.vy += (dyToP / d) * push; }
+                  }
+              }
               else if (affix === 'WARP') { if (e.affixTimer > CONFIG.AFFIXES.WARP.cooldown) { e.affixTimer = 0; e.x = p.x + p.vx * 30 + Utils.rand(-50, 50); e.y = p.y + p.vy * 30 + Utils.rand(-50, 50); e.x = Utils.clamp(e.x, 50, s.width-50); e.y = Utils.clamp(e.y, 50, s.height-50); createShockwave(s, e.x, e.y, 100, CONFIG.AFFIXES.WARP.color, 10); } } 
               else if (affix === 'REGEN') { if (e.affixTimer % CONFIG.AFFIXES.REGEN.interval === 0) { e.hp = Math.min(e.maxHp, e.hp + e.maxHp * CONFIG.AFFIXES.REGEN.rate); } }
           }
       }
       
       if (e.type === 'kamikaze') {
-        if (e.phase === 0) { e.rotation = toPlayerAng; e.vx += Math.cos(toPlayerAng) * 0.4; e.vy += Math.sin(toPlayerAng) * 0.4; if (distToPlayer < CONFIG.ENEMIES.KAMIKAZE.detectRange) { e.phase = 1; e.attackTimer = 0; callbacks.playSound('charge'); } } 
-        else if (e.phase === 1) { e.vx *= 0.85; e.vy *= 0.85; e.attackTimer++; e.hitFlash = Math.floor(e.attackTimer / 4) % 2 === 0 ? 1 : 0; if (e.attackTimer > 45) { e.dead = true; callbacks.playSound('explosion'); createExplosion(s, e.x, e.y, '#ff4400', 30, 2); createShockwave(s, e.x, e.y, 180, '#ffaa00', 8); s.shake = 15; if (distToPlayer < 120 && p.invuln <= 0) { p.hp -= 35; p.invuln = 45; p.hitFlash = 10; callbacks.playSound('hit'); } } }
+        if (e.phase === 0) {
+            const d = Math.sqrt(distSqToPlayer);
+            if (d > 0) { e.vx += (dxToP / d) * 0.4; e.vy += (dyToP / d) * 0.4; }
+            e.rotation = Math.atan2(dyToP, dxToP);
+            if (distSqToPlayer < CONFIG.ENEMIES.KAMIKAZE.detectRange**2) { e.phase = 1; e.attackTimer = 0; callbacks.playSound('charge'); }
+        }
+        else if (e.phase === 1) { e.vx *= 0.85; e.vy *= 0.85; e.attackTimer++; e.hitFlash = Math.floor(e.attackTimer / 4) % 2 === 0 ? 1 : 0; if (e.attackTimer > 45) { e.dead = true; callbacks.playSound('explosion'); createExplosion(s, e.x, e.y, '#ff4400', 30, 2); createShockwave(s, e.x, e.y, 180, '#ffaa00', 8); s.shake = 15; if (distSqToPlayer < 120 * 120 && p.invuln <= 0) { p.hp -= 35; p.invuln = 45; p.hitFlash = 10; callbacks.playSound('hit'); } } }
       } else if (e.type === 'turret') {
-         e.rotation += 0.01; if (distToPlayer > 400) { e.vx += Math.cos(toPlayerAng) * 0.05; e.vy += Math.sin(toPlayerAng) * 0.05; } else { e.vx *= 0.9; e.vy *= 0.9; }
+         e.rotation += 0.01;
+         if (distSqToPlayer > 400 * 400) {
+             const d = Math.sqrt(distSqToPlayer);
+             if (d > 0) { e.vx += (dxToP / d) * 0.05; e.vy += (dyToP / d) * 0.05; }
+         } else { e.vx *= 0.9; e.vy *= 0.9; }
          e.shootTimer++; if (e.shootTimer >= CONFIG.ENEMIES.TURRET.shootInterval) { e.shootTimer = 0; callbacks.playSound('shoot'); for(let k=0; k<4; k++) { const proj = s.pools.enemies.acquire(); if(proj) { const ang = e.rotation + (Math.PI/2) * k; proj.id = Utils.uid('t_shot'); proj.x = e.x; proj.y = e.y; proj.vx = Math.cos(ang) * 4; proj.vy = Math.sin(ang) * 4; proj.type = 'projectile'; proj.size = 6; proj.color = '#00ffff'; proj.life = 120; proj.hp = 1; proj.active = true; s.enemies.push(proj); } } }
       } else if (e.type === 'boss') {
          e.attackTimer++; if (e.y < 150) e.y += 1.5; const phase = Math.floor(e.attackTimer / 300) % 3;
          if (phase === 0) { if (e.attackTimer % 8 === 0) { if (e.attackTimer % 32 === 0) callbacks.playSound('shoot'); const angle = e.attackTimer * 0.08; for (let k = 0; k < 3; k++) { const proj = s.pools.enemies.acquire(); if (proj) { const fa = angle + (Math.PI * 2 / 3) * k; proj.id = Utils.uid('bp'); proj.x = e.x; proj.y = e.y; proj.vx = Math.cos(fa) * 4; proj.vy = Math.sin(fa) * 4; proj.type = 'projectile'; proj.size = 6; proj.color = '#ff0000'; proj.life = 200; proj.hp = 1; proj.active = true; s.enemies.push(proj); } } } } 
-         else if (phase === 1) { if (e.attackTimer % 120 === 0) { const ang = Math.atan2(p.y - e.y, p.x - e.x); e.vx = Math.cos(ang) * 12; e.vy = Math.sin(ang) * 12; callbacks.playSound('charge'); } } 
+         else if (phase === 1) {
+             if (e.attackTimer % 120 === 0) {
+                 const d = Math.sqrt(distSqToPlayer);
+                 if (d > 0) { e.vx = (dxToP / d) * 12; e.vy = (dyToP / d) * 12; }
+                 callbacks.playSound('charge');
+             }
+         }
          else { if (e.attackTimer % 180 === 0) { for (let m = 0; m < 3; m++) { const minion = s.pools.enemies.acquire(); if (minion) { const sa = (Math.PI * 2 / 3) * m; minion.id = Utils.uid('min'); minion.x = e.x + Math.cos(sa) * 100; minion.y = e.y + Math.sin(sa) * 100; minion.vx = 0; minion.vy = 0; minion.hp = 30; minion.maxHp = 30; minion.type = 'chaser'; minion.speed = 3; minion.size = 12; minion.color = CONFIG.ENEMIES.CHASER.color; minion.xp = 15; minion.score = 150; minion.active = true; minion.dead = false; s.enemies.push(minion); } } } }
          e.vx *= 0.94; e.vy *= 0.94; e.x += e.vx * s.timeScale; e.y += e.vy * s.timeScale; e.x = Utils.clamp(e.x, e.size, s.width - e.size); e.y = Utils.clamp(e.y, e.size, s.height - e.size);
-      } else if (e.type === 'projectile') { e.x += e.vx * s.timeScale; e.y += e.vy * s.timeScale; e.life--; if (e.life <= 0 || !Utils.inBounds(e.x, e.y, s.width, s.height, 100)) e.dead = true; }
-      else if (e.type === 'shooter') { if (distToPlayer < 250) { e.vx -= Math.cos(toPlayerAng) * 0.15; e.vy -= Math.sin(toPlayerAng) * 0.15; } else { e.vx += Math.cos(toPlayerAng) * 0.1; e.vy += Math.sin(toPlayerAng) * 0.1; } e.shootTimer++; if (e.shootTimer >= CONFIG.ENEMIES.SHOOTER.shootInterval && distToPlayer < 400) { e.shootTimer = 0; callbacks.playSound('shoot'); const proj = s.pools.enemies.acquire(); if (proj) { proj.id = Utils.uid('es'); proj.x = e.x; proj.y = e.y; proj.vx = Math.cos(toPlayerAng) * 5; proj.vy = Math.sin(toPlayerAng) * 5; proj.type = 'projectile'; proj.size = 5; proj.color = e.color; proj.life = 150; proj.hp = 1; proj.active = true; s.enemies.push(proj); } } const spd = Math.hypot(e.vx, e.vy); if (spd > e.speed) { e.vx = (e.vx / spd) * e.speed; e.vy = (e.vy / spd) * e.speed; } e.x += e.vx * s.timeScale; e.y += e.vy * s.timeScale; }
-      else { const accel = e.type === 'tank' ? 0.15 : 0.2; e.vx += Math.cos(toPlayerAng) * accel; e.vy += Math.sin(toPlayerAng) * accel; if (s.quality !== 'LOW') { const nearby = s.spatialGrid.queryRadius(e.x, e.y, e.size * 3); for (const other of nearby) { if (other.id !== e.id && other.type !== 'projectile' && other.active) { const d = Utils.dist(e.x, e.y, other.x, other.y); if (d < e.size * 2 && d > 0) { const pa = Math.atan2(e.y - other.y, e.x - other.x); e.vx += Math.cos(pa) * 0.3; e.vy += Math.sin(pa) * 0.3; } } } } const spd = Math.hypot(e.vx, e.vy); if (spd > e.speed) { e.vx = (e.vx / spd) * e.speed; e.vy = (e.vy / spd) * e.speed; } e.x += e.vx * s.timeScale; e.y += e.vy * s.timeScale; }
-      if (e.type !== 'boss') { const spd = Math.hypot(e.vx, e.vy); if (spd > e.speed) { e.vx = (e.vx / spd) * e.speed; e.vy = (e.vy / spd) * e.speed; } e.x += e.vx * s.timeScale; e.y += e.vy * s.timeScale; }
+      } else if (e.type === 'projectile') {
+        e.x += e.vx * s.timeScale; e.y += e.vy * s.timeScale;
+        e.life--; if (e.life <= 0 || !Utils.inBounds(e.x, e.y, s.width, s.height, 100)) e.dead = true;
+      }
+      else if (e.type === 'shooter') {
+        const d = Math.sqrt(distSqToPlayer);
+        if (d > 0) {
+            if (distSqToPlayer < 250 * 250) { e.vx -= (dxToP / d) * 0.15; e.vy -= (dyToP / d) * 0.15; }
+            else { e.vx += (dxToP / d) * 0.1; e.vy += (dyToP / d) * 0.1; }
+        }
+        e.shootTimer++;
+        if (e.shootTimer >= CONFIG.ENEMIES.SHOOTER.shootInterval && distSqToPlayer < 400 * 400) {
+            e.shootTimer = 0; callbacks.playSound('shoot');
+            const proj = s.pools.enemies.acquire();
+            if (proj) {
+                proj.id = Utils.uid('es'); proj.x = e.x; proj.y = e.y;
+                if (d > 0) { proj.vx = (dxToP / d) * 5; proj.vy = (dyToP / d) * 5; }
+                else { proj.vx = 5; proj.vy = 0; }
+                proj.type = 'projectile'; proj.size = 5; proj.color = e.color; proj.life = 150; proj.hp = 1; proj.active = true; s.enemies.push(proj);
+            }
+        }
+        const spdSq = e.vx * e.vx + e.vy * e.vy;
+        if (spdSq > e.speed * e.speed) {
+            const spd = Math.sqrt(spdSq);
+            e.vx = (e.vx / spd) * e.speed; e.vy = (e.vy / spd) * e.speed;
+        }
+        e.x += e.vx * s.timeScale; e.y += e.vy * s.timeScale;
+      }
+      else {
+        const accel = e.type === 'tank' ? 0.15 : 0.2;
+        const d = Math.sqrt(distSqToPlayer);
+        if (d > 0) { e.vx += (dxToP / d) * accel; e.vy += (dyToP / d) * accel; }
 
-      if (p.invuln <= 0 && Utils.dist(e.x, e.y, p.x, p.y) < e.size + CONFIG.PLAYER.COLLISION_RADIUS) { const damage = e.type === 'boss' ? 40 : 15; s.player.hp -= damage; s.shake = 15; s.player.invuln = CONFIG.PLAYER.INVULN_ON_HIT; s.player.hitFlash = 10; s.combo = 0; s.comboTimer = 0; callbacks.playSound('hit'); createShockwave(s, s.player.x, s.player.y, 100, '#ff0000', 10); if (s.player.hp <= 0) { s.gameOver = true; callbacks.playSound('gameover'); const runData = { score: Math.floor(s.score), wave: s.wave, level: s.player.level, duration: s.runDuration, upgrades: Array.from(s.upgradeStacks.entries()).map(([id, count]) => ({ id, count })), weapon: s.player.weapon }; callbacks.onGameOver(runData); } }
+        if (s.quality !== 'LOW') {
+            const nearby = s.spatialGrid.queryRadius(e.x, e.y, e.size * 3);
+            for (const other of nearby) {
+                if (other.id !== e.id && other.type !== 'projectile' && other.active) {
+                    const dx = e.x - other.x; const dy = e.y - other.y;
+                    const dSq = dx * dx + dy * dy;
+                    const minDist = e.size * 2;
+                    if (dSq < minDist * minDist && dSq > 0) {
+                        const dist = Math.sqrt(dSq);
+                        e.vx += (dx / dist) * 0.3; e.vy += (dy / dist) * 0.3;
+                    }
+                }
+            }
+        }
+        const spdSq = e.vx * e.vx + e.vy * e.vy;
+        if (spdSq > e.speed * e.speed) {
+            const spd = Math.sqrt(spdSq);
+            e.vx = (e.vx / spd) * e.speed; e.vy = (e.vy / spd) * e.speed;
+        }
+        e.x += e.vx * s.timeScale; e.y += e.vy * s.timeScale;
+      }
+
+      if (e.type !== 'boss') {
+        if (e.speed > 0) {
+            const spdSq = e.vx * e.vx + e.vy * e.vy;
+            if (spdSq > e.speed * e.speed) {
+                const spd = Math.sqrt(spdSq);
+                e.vx = (e.vx / spd) * e.speed; e.vy = (e.vy / spd) * e.speed;
+            }
+        }
+        e.x += e.vx * s.timeScale; e.y += e.vy * s.timeScale;
+      }
+
+      const colDist = e.size + CONFIG.PLAYER.COLLISION_RADIUS;
+      if (p.invuln <= 0 && distSqToPlayer < colDist * colDist) { const damage = e.type === 'boss' ? 40 : 15; s.player.hp -= damage; s.shake = 15; s.player.invuln = CONFIG.PLAYER.INVULN_ON_HIT; s.player.hitFlash = 10; s.combo = 0; s.comboTimer = 0; callbacks.playSound('hit'); createShockwave(s, s.player.x, s.player.y, 100, '#ff0000', 10); if (s.player.hp <= 0) { s.gameOver = true; callbacks.playSound('gameover'); const runData = { score: Math.floor(s.score), wave: s.wave, level: s.player.level, duration: s.runDuration, upgrades: Array.from(s.upgradeStacks.entries()).map(([id, count]) => ({ id, count })), weapon: s.player.weapon }; callbacks.onGameOver(runData); } }
     }
     
     // Cleanup Logic
     for (let i = s.enemies.length - 1; i >= 0; i--) { const e = s.enemies[i]; if (e.dead || !e.active) { s.pools.enemies.release(e); s.enemies.splice(i, 1); } }
-    for(let i=s.pickups.length-1; i>=0; i--) { const pick = s.pickups[i]; const dist = Utils.dist(pick.x, pick.y, p.x, p.y); if (dist < 150) { pick.x += (p.x - pick.x) * 0.05; pick.y += (p.y - pick.y) * 0.05; } if (dist < 30) { if(pick.type === 'heal') { p.hp = Math.min(p.maxHp, p.hp + CONFIG.PICKUPS.HEAL_AMOUNT); createFloatingText(s, p.x, p.y, `+${CONFIG.PICKUPS.HEAL_AMOUNT} HP`, '#00ff00', 20); callbacks.playSound('pickup'); } s.pools.pickups.release(pick); s.pickups.splice(i, 1); } else { pick.life--; if(pick.life <= 0) { s.pools.pickups.release(pick); s.pickups.splice(i, 1); } } }
+    for(let i=s.pickups.length-1; i>=0; i--) { const pick = s.pickups[i]; const dSq = Utils.distSq(pick.x, pick.y, p.x, p.y); if (dSq < 150 * 150) { pick.x += (p.x - pick.x) * 0.05; pick.y += (p.y - pick.y) * 0.05; } if (dSq < 30 * 30) { if(pick.type === 'heal') { p.hp = Math.min(p.maxHp, p.hp + CONFIG.PICKUPS.HEAL_AMOUNT); createFloatingText(s, p.x, p.y, `+${CONFIG.PICKUPS.HEAL_AMOUNT} HP`, '#00ff00', 20); callbacks.playSound('pickup'); } s.pools.pickups.release(pick); s.pickups.splice(i, 1); } else { pick.life--; if(pick.life <= 0) { s.pools.pickups.release(pick); s.pickups.splice(i, 1); } } }
     
     // 2. PHYSICS UPGRADE: BALLISTICS UPDATE WITH CCD
     for (let bi = s.bullets.length - 1; bi >= 0; bi--) { 
@@ -486,8 +585,8 @@ export function updateGame(s: GameState, callbacks: GameCallbacks) {
         }
 
         if (b.homing > 0 && s.quality !== 'LOW') { 
-            let target = null, minD = 400; const nearby = s.spatialGrid.queryRadius(b.x, b.y, 400); 
-            for (const e of nearby) { if (e.type === 'projectile' || !e.active) continue; const d = Utils.dist(b.x, b.y, e.x, e.y); if (d < minD) { minD = d; target = e; } } 
+            let target = null, minDSq = 400 * 400; const nearby = s.spatialGrid.queryRadius(b.x, b.y, 400);
+            for (const e of nearby) { if (e.type === 'projectile' || !e.active) continue; const dSq = Utils.distSq(b.x, b.y, e.x, e.y); if (dSq < minDSq) { minDSq = dSq; target = e; } }
             if (target) { 
                 const wantAng = Math.atan2(target.y - b.y, target.x - b.x); 
                 const currAng = Math.atan2(b.vy, b.vx); 
@@ -564,10 +663,10 @@ export function updateGame(s: GameState, callbacks: GameCallbacks) {
         if (hitEnemy) { s.pools.bullets.release(b); s.bullets.splice(bi, 1); } 
     }
     
-    for (let i = s.gems.length - 1; i >= 0; i--) { const g = s.gems[i]; if (!g.active) continue; const d = Utils.dist(g.x, g.y, p.x, p.y); if (d < p.stats.magnetRange) { g.vx += (p.x - g.x) * CONFIG.GEMS.PULL_STRENGTH; g.vy += (p.y - g.y) * CONFIG.GEMS.PULL_STRENGTH; } g.x += g.vx; g.y += g.vy; g.vx *= CONFIG.GEMS.FRICTION; g.vy *= CONFIG.GEMS.FRICTION; g.life--; if (d < CONFIG.GEMS.COLLECT_RADIUS) { p.xp += g.val; if (p.xp >= p.xpToNext) { p.xp -= p.xpToNext; p.level++; p.xpToNext = Math.floor(p.xpToNext * CONFIG.PROGRESSION.XP_SCALE); s.paused = true; callbacks.playSound('levelup'); const pool: UpgradeOption[] = []; UPGRADES.forEach(u => { const current = s.upgradeStacks.get(u.id) || 0; if (current < u.maxStack) { const weight = Math.max(0.1, u.weight - current * 0.1); for (let k = 0; k < weight * 10; k++) pool.push({ ...u, currentStack: current }); } }); const options: UpgradeOption[] = []; if (pool.length > 0) { while (options.length < 3 && pool.length > 0) { const idx = Math.floor(Math.random() * pool.length); const pick = pool[idx]; if (!options.find(o => o.id === pick.id)) options.push(pick); for (let z = pool.length - 1; z >= 0; z--) if (pool[z].id === pick.id) pool.splice(z, 1); } callbacks.onLevelUp(options); } else { s.paused = false; } } s.pools.gems.release(g); s.gems.splice(i, 1); } else if (g.life <= 0) { s.pools.gems.release(g); s.gems.splice(i, 1); } }
+    for (let i = s.gems.length - 1; i >= 0; i--) { const g = s.gems[i]; if (!g.active) continue; const dSq = Utils.distSq(g.x, g.y, p.x, p.y); if (dSq < p.stats.magnetRange * p.stats.magnetRange) { g.vx += (p.x - g.x) * CONFIG.GEMS.PULL_STRENGTH; g.vy += (p.y - g.y) * CONFIG.GEMS.PULL_STRENGTH; } g.x += g.vx; g.y += g.vy; g.vx *= CONFIG.GEMS.FRICTION; g.vy *= CONFIG.GEMS.FRICTION; g.life--; if (dSq < CONFIG.GEMS.COLLECT_RADIUS * CONFIG.GEMS.COLLECT_RADIUS) { p.xp += g.val; if (p.xp >= p.xpToNext) { p.xp -= p.xpToNext; p.level++; p.xpToNext = Math.floor(p.xpToNext * CONFIG.PROGRESSION.XP_SCALE); s.paused = true; callbacks.playSound('levelup'); const pool: UpgradeOption[] = []; UPGRADES.forEach(u => { const current = s.upgradeStacks.get(u.id) || 0; if (current < u.maxStack) { const weight = Math.max(0.1, u.weight - current * 0.1); for (let k = 0; k < weight * 10; k++) pool.push({ ...u, currentStack: current }); } }); const options: UpgradeOption[] = []; if (pool.length > 0) { while (options.length < 3 && pool.length > 0) { const idx = Math.floor(Math.random() * pool.length); const pick = pool[idx]; if (!options.find(o => o.id === pick.id)) options.push(pick); for (let z = pool.length - 1; z >= 0; z--) if (pool[z].id === pick.id) pool.splice(z, 1); } callbacks.onLevelUp(options); } else { s.paused = false; } } s.pools.gems.release(g); s.gems.splice(i, 1); } else if (g.life <= 0) { s.pools.gems.release(g); s.gems.splice(i, 1); } }
     for (let i = s.particles.length - 1; i >= 0; i--) { const part = s.particles[i]; if (!part.active) continue; part.x += part.vx * s.timeScale; part.y += part.vy * s.timeScale; part.vx *= part.friction; part.vy *= part.friction; part.life -= s.timeScale; if (part.type === 'shard' || part.type === 'poly') { part.rotation += part.rotationSpeed * s.timeScale; part.rotationSpeed *= 0.98; } if (part.life <= 0) { s.pools.particles.release(part); s.particles.splice(i, 1); } }
     for (let i = s.shockwaves.length - 1; i >= 0; i--) { const sw = s.shockwaves[i]; sw.size += sw.speed * s.timeScale; sw.alpha -= 0.03 * s.timeScale; if (sw.alpha <= 0) s.shockwaves.splice(i, 1); }
-    for (const o of s.orbitals) { o.angle += 0.05; const ox = p.x + Math.cos(o.angle) * o.dist; const oy = p.y + Math.sin(o.angle) * o.dist; for (const e of s.enemies) { if (e.type === 'projectile' || e.dead || !e.active) continue; if (Utils.dist(ox, oy, e.x, e.y) < e.size + 10) { e.hp -= 2; e.hitFlash = 2; createExplosion(s, e.x, e.y, '#00ffff', 1, 0.5); } } }
+    for (const o of s.orbitals) { o.angle += 0.05; const ox = p.x + Math.cos(o.angle) * o.dist; const oy = p.y + Math.sin(o.angle) * o.dist; for (const e of s.enemies) { if (e.type === 'projectile' || e.dead || !e.active) continue; const dSq = Utils.distSq(ox, oy, e.x, e.y); const colR = e.size + 10; if (dSq < colR * colR) { e.hp -= 2; e.hitFlash = 2; createExplosion(s, e.x, e.y, '#00ffff', 1, 0.5); } } }
     for (let i = s.texts.length - 1; i >= 0; i--) { const t = s.texts[i]; t.x += t.vx * s.timeScale; t.y += t.vy * s.timeScale; t.vy += 0.1 * s.timeScale; t.life -= s.timeScale; if (t.life <= 0) s.texts.splice(i, 1); }
     
     // ... [Spawn logic] ...
