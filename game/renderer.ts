@@ -45,11 +45,22 @@ export const renderGame = (ctx: CanvasRenderingContext2D, s: GameState) => {
         ctx.translate(Utils.rand(-s.shake, s.shake), Utils.rand(-s.shake, s.shake));
     }
 
-    // Stars (Far Background)
+    // Stars (Far Background with Relativistic Grid Distortion)
     ctx.fillStyle = '#ffffff';
     for(let i=0; i<50; i++) {
-        const x = (i * 137 + s.player.x * 0.1) % s.width;
-        const y = (i * 243 + s.player.y * 0.1) % s.height;
+        const baseX = (i * 137 + s.player.x * 0.1) % s.width;
+        const baseY = (i * 243 + s.player.y * 0.1) % s.height;
+
+        let x = baseX;
+        let y = baseY;
+
+        // Sample Fluid Grid for Distortion
+        if (s.visualGrid) {
+            const vel = s.visualGrid.sampleVelocity(baseX, baseY);
+            x += vel.vx * 2;
+            y += vel.vy * 2;
+        }
+
         const size = (i % 3) * 0.5 + 0.5;
         const alpha = 0.2 + (Math.sin(s.frame * 0.05 + i) * 0.2);
         ctx.globalAlpha = alpha;
@@ -75,7 +86,10 @@ export const renderGame = (ctx: CanvasRenderingContext2D, s: GameState) => {
             // Shard / Poly Geometry Rendering
             if (part.type === 'poly' || part.type === 'shard') {
                  ctx.save(); ctx.translate(part.x + offsetX, part.y + offsetY); ctx.rotate(part.rotation);
-                 if (channel === 'main') ctx.fillStyle = part.color;
+                 if (channel === 'main') {
+                    ctx.fillStyle = part.color;
+                    ctx.shadowBlur = blur > 0 ? 10 : 0; ctx.shadowColor = part.color;
+                 }
                  
                  ctx.beginPath();
                  if (part.polyPoints && part.polyPoints.length > 0) {
@@ -87,6 +101,7 @@ export const renderGame = (ctx: CanvasRenderingContext2D, s: GameState) => {
                  }
                  ctx.closePath();
                  ctx.fill(); ctx.restore();
+                 ctx.shadowBlur = 0;
             }
         }
 
@@ -122,6 +137,41 @@ export const renderGame = (ctx: CanvasRenderingContext2D, s: GameState) => {
                     if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
                 }
                 ctx.closePath(); ctx.fill();
+            } else if (e.type === 'chaser' || e.type === 'turret' || e.type === 'shooter') {
+                // Procedural Harmongraph (Lissajous Curve) Geometry
+                const time = (s.frame + e.id.length * 10) * 0.05;
+                const points = 60;
+                const a = e.type === 'chaser' ? 3 : 2;
+                const b = e.type === 'turret' ? 4 : 3;
+                const delta = time;
+
+                ctx.beginPath();
+                for (let i = 0; i <= points; i++) {
+                    const t = (i / points) * Math.PI * 2;
+                    const px = Math.sin(a * t + delta) * e.size;
+                    const py = Math.sin(b * t) * e.size;
+                    if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+                }
+                ctx.lineWidth = 2;
+                ctx.strokeStyle = channel === 'main' ? (e.hitFlash > 0 ? '#fff' : e.color) : (channel === 'red' ? '#ff0000' : '#0000ff');
+                ctx.stroke();
+
+                // SPECTACULAR: Procedural Bio-Mechanical Tentacles
+                if (e.isElite || e.type === 'turret') {
+                    for (let j = 0; j < 4; j++) {
+                        const baseAng = (Math.PI * 2 / 4) * j + time * 0.5;
+                        ctx.beginPath();
+                        ctx.moveTo(0, 0);
+                        let tx = 0, ty = 0;
+                        for (let k = 1; k <= 5; k++) {
+                            const segAng = baseAng + Math.sin(time * 2 + k * 0.8) * 0.5;
+                            tx += Math.cos(segAng) * (e.size * 0.5);
+                            ty += Math.sin(segAng) * (e.size * 0.5);
+                            ctx.lineTo(tx, ty);
+                        }
+                        ctx.stroke();
+                    }
+                }
             } else { 
                 ctx.beginPath(); ctx.arc(0, 0, e.size, 0, Math.PI * 2); ctx.fill(); 
             }
@@ -242,6 +292,26 @@ export const renderGame = (ctx: CanvasRenderingContext2D, s: GameState) => {
         ctx.fillStyle = e.color; ctx.globalAlpha = 0.5; ctx.beginPath(); ctx.arc(e.x, e.y, e.size * 1.5, 0, Math.PI * 2); ctx.fill();
     }
 
+    // SPECTACULAR: Volumetric Light Shafts
+    const p = s.player;
+    if (!s.gameOver) {
+        const shaftCount = 8;
+        const color = CONFIG.WEAPONS[p.weapon].color;
+        for (let i = 0; i < shaftCount; i++) {
+            const ang = p.angle + (i / (shaftCount-1) - 0.5) * 0.6 + Math.sin(s.frame * 0.02 + i) * 0.05;
+            const len = 300 + Math.sin(s.frame * 0.05 + i) * 50;
+            const grad = ctx.createLinearGradient(p.x, p.y, p.x + Math.cos(ang) * len, p.y + Math.sin(ang) * len);
+            grad.addColorStop(0, color + '44');
+            grad.addColorStop(1, color + '00');
+            ctx.fillStyle = grad;
+            ctx.beginPath();
+            ctx.moveTo(p.x, p.y);
+            ctx.lineTo(p.x + Math.cos(ang - 0.03) * len, p.y + Math.sin(ang - 0.03) * len);
+            ctx.lineTo(p.x + Math.cos(ang + 0.03) * len, p.y + Math.sin(ang + 0.03) * len);
+            ctx.fill();
+        }
+    }
+
     // Muzzle Flash
     if (s.player.muzzleFlash > 0) {
         ctx.save(); ctx.translate(s.player.x, s.player.y); ctx.rotate(s.player.angle);
@@ -311,6 +381,22 @@ export const renderGame = (ctx: CanvasRenderingContext2D, s: GameState) => {
     ctx.globalAlpha = 1;
 
     ctx.restore();
+
+    // --- PASS 6: DIEGETIC HUD PASS (Scanlines & Noise) ---
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.globalAlpha = 0.05;
+    ctx.fillStyle = '#ffffff';
+    for (let i = 0; i < s.height; i += 4) {
+        ctx.fillRect(0, i, s.width, 1);
+    }
+
+    // Vignette
+    const vign = ctx.createRadialGradient(s.width/2, s.height/2, s.width * 0.4, s.width/2, s.height/2, s.width * 0.8);
+    vign.addColorStop(0, 'rgba(0,0,0,0)');
+    vign.addColorStop(1, 'rgba(0,0,0,0.4)');
+    ctx.globalAlpha = 1.0;
+    ctx.fillStyle = vign;
+    ctx.fillRect(0, 0, s.width, s.height);
 
     // Cinematic Flash
     if (s.screenFlash > 0.01) {

@@ -418,7 +418,21 @@ export function updateGame(s: GameState, callbacks: GameCallbacks) {
       const count = (arch.count || 1) + p.stats.multishot;
       for (let i = 1; i < count; i++) { const spread = (i % 2 === 0 ? 1 : -1) * Math.ceil(i / 2) * (arch.spread || 0.1); fireBullet(spread); }
       p.cd = Math.max(2, 20 / p.stats.fireRateMod * arch.fireDelay);
-      s.shake = arch.name === 'Rail Driver' ? 5 : 2;
+
+      // SPECTACULAR: Advanced Weapon Physics
+      if (p.weapon === 'RAILGUN') {
+          s.shake = 15;
+          if (s.visualGrid) {
+              for (let j = 0; j < 20; j++) {
+                  const fx = p.x + Math.cos(p.angle) * j * 40;
+                  const fy = p.y + Math.sin(p.angle) * j * 40;
+                  s.visualGrid.applyForce(fx, fy, 60, 25);
+              }
+          }
+      } else {
+          s.shake = 2;
+      }
+
       p.vx -= Math.cos(p.angle) * 0.8; p.vy -= Math.sin(p.angle) * 0.8;
     }
 
@@ -584,6 +598,11 @@ export function updateGame(s: GameState, callbacks: GameCallbacks) {
              b.x += b.vx * s.timeScale; b.y += b.vy * s.timeScale;
         }
 
+        // SPECTACULAR: Void Singularity
+        if (s.player.weapon === 'VOID' && s.frame % 3 === 0 && s.visualGrid) {
+            s.visualGrid.applyForce(b.x, b.y, 100, -15);
+        }
+
         if (b.homing > 0 && s.quality !== 'LOW') { 
             let target = null, minDSq = 400 * 400; const nearby = s.spatialGrid.queryRadius(b.x, b.y, 400);
             for (const e of nearby) { if (e.type === 'projectile' || !e.active) continue; const dSq = Utils.distSq(b.x, b.y, e.x, e.y); if (dSq < minDSq) { minDSq = dSq; target = e; } }
@@ -653,6 +672,14 @@ export function updateGame(s: GameState, callbacks: GameCallbacks) {
                     createDebris(s, e.x, e.y, e.color, e.isElite ? 20 : 12, e.isElite ? 2 : 1.2); 
                     if (s.visualGrid) s.visualGrid.applyForce(e.x, e.y, e.size * 4, 30);
                     
+                    // SPECTACULAR: Impact Frames & Time Dilation
+                    if (e.isElite || e.type === 'boss') {
+                        s.timeScale = 0.05;
+                        s.shake = 25;
+                        s.screenFlash = 0.5;
+                        s.flashColor = e.color;
+                    }
+
                     if (e.affixes.includes('SPLITTER')) { const count = CONFIG.AFFIXES.SPLITTER.count; for(let k=0; k<count; k++) { const m = s.pools.enemies.acquire(); if (m) { const a = (Math.PI*2/count)*k; m.id = Utils.uid('split'); m.x = e.x; m.y = e.y; m.vx = Math.cos(a)*4; m.vy = Math.sin(a)*4; m.hp = e.maxHp * 0.3; m.maxHp = m.hp; m.type = 'chaser'; m.speed = e.speed * 1.5; m.size = e.size * 0.6; m.color = CONFIG.AFFIXES.SPLITTER.color; m.active = true; m.dead = false; s.enemies.push(m); } } } 
                     if (e.isElite && Math.random() < 0.6) { createPickup(s, e.x, e.y); } 
                     if (e.type === 'boss') { s.bossActive = false; s.wave++; s.waveKills = 0; s.waveQuota = Math.ceil(s.waveQuota * CONFIG.SPAWNING.QUOTA_MULTIPLIER); s.spawnTimer = 0; s.timeScale = 0.2; createFloatingText(s, e.x, e.y - 60, 'VICTORY', '#ffff00', 40); } 

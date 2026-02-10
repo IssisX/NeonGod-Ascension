@@ -206,6 +206,16 @@ export class VisualGrid {
       }
   }
 
+  sampleVelocity(x: number, y: number) {
+      const cx = (x / this.cellSize) | 0;
+      const cy = (y / this.cellSize) | 0;
+      if (cx >= 0 && cx < this.cols && cy >= 0 && cy < this.rows) {
+          const idx = cy * this.cols + cx;
+          return { vx: this.vx[this.bufferIdx][idx], vy: this.vy[this.bufferIdx][idx] };
+      }
+      return { vx: 0, vy: 0 };
+  }
+
   update(step = 1) {
     const readIdx = this.bufferIdx;
     const writeIdx = (readIdx + 1) % 2;
