@@ -2,6 +2,9 @@ import { CONFIG, UPGRADES } from '../constants';
 import { GameState, Player, UpgradeOption, RunData, Enemy, Bullet, Particle, Gem, SoundType, Pickup, EnemyAffix } from '../types';
 import { Utils } from '../utils';
 import { SpatialGrid, VisualGrid } from './grids';
+import { CameraSystem } from './camera';
+import { DirectorAI, DamageType } from './director';
+import { MPMSolver } from './mpm';
 
 // --- POOLS & FACTORIES ---
 // (Kept streamlined for performance)
@@ -70,6 +73,7 @@ export function createGameState(width: number, height: number): GameState {
         waveKills: 0, waveQuota: CONFIG.SPAWNING.INITIAL_WAVE_QUOTA,
         timeScale: 1, shake: 0, screenFlash: 0, flashColor: '#ffffff',
         startTime: 0, runDuration: 0,
+        camera: { x: 0, y: 0, rotation: 0, zoom: 1, targetX: 0, targetY: 0, vx: 0, vy: 0, vr: 0, vz: 0 },
         quality: 'HIGH', qualitySettings: CONFIG.QUALITY.TIERS.HIGH,
         player: {} as Player,
         bullets: [], enemies: [], particles: [], gems: [], pickups: [], texts: [], shockwaves: [], orbitals: [],
@@ -89,6 +93,7 @@ export function createGameState(width: number, height: number): GameState {
         visualGrid: new VisualGrid(width, height),
     };
     s.spatialGrid.resize(width, height);
+    MPMSolver.init();
     resetPlayer(s.player, width, height);
     return s;
 }
@@ -140,9 +145,9 @@ export const createEvolutionEffect = (s: GameState, x: number, y: number, color:
     createFloatingText(s, x, y - 100, "EVOLUTION!", color, 40);
 };
 
-const createShockwave = (s: GameState, x: number, y: number, size: number, color: string, speed = 2) => {
+const createShockwave = (s: GameState, x: number, y: number, size: number, color: string, speed = 2, heat = 0) => {
     s.shockwaves.push({ x, y, size: 5, maxSize: size, color, speed, alpha: 1, width: 20 });
-    if (s.visualGrid) s.visualGrid.applyForce(x, y, size / 3, speed * 25);
+    if (s.visualGrid) s.visualGrid.applyForce(x, y, size / 3, speed * 25, heat);
 };
 
 const createFloatingText = (s: GameState, x: number, y: number, text: string, color = '#fff', size = 16) => {
@@ -277,6 +282,9 @@ export function updateGame(s: GameState, callbacks: GameCallbacks) {
         for (const e of s.enemies) if (e.active) s.spatialGrid.insert(e); 
     }
     s.visualGrid.update(s.qualitySettings.gridStep);
+    MPMSolver.update(s);
+    CameraSystem.update(s);
+    DirectorAI.update(s);
 
     const p = s.player;
     if (p.hitFlash > 0) p.hitFlash--;
@@ -296,6 +304,13 @@ export function updateGame(s: GameState, callbacks: GameCallbacks) {
         if (s.keys.a || s.keys.ArrowLeft) mx -= 1;
         if (s.keys.d || s.keys.ArrowRight) mx += 1;
         Object.values(s.touches).forEach(t => {
+          // SPECTACULAR: Runic Caster (Gesture Manipulation)
+          const dx_touch = t.x - t.originX;
+          const dy_touch = t.y - t.originY;
+          if (Math.hypot(dx_touch, dy_touch) > 50) {
+              if (s.visualGrid) s.visualGrid.applyForce(t.x, t.y, 100, 10, 0.2); // Divine Ink trails
+          }
+
           if (t.type === 'move') {
             const dx = t.x - t.originX, dy = t.y - t.originY;
             const d = Math.hypot(dx, dy);
@@ -348,7 +363,7 @@ export function updateGame(s: GameState, callbacks: GameCallbacks) {
     // Ult Logic
     const triggerUlt = s.autoMode ? autoUlt : (s.keys.f && s.overdrive >= 100);
     if (triggerUlt && s.overdrive >= 100) {
-        s.overdrive = 0; callbacks.playSound('ultimate'); createShockwave(s, p.x, p.y, 1500, CONFIG.COLORS.ULTIMATE, 25); s.shake = 30;
+        s.overdrive = 0; callbacks.playSound('ultimate'); createShockwave(s, p.x, p.y, 1500, CONFIG.COLORS.ULTIMATE, 25, 3.0); s.shake = 30;
         s.visualGrid.applyForce(p.x, p.y, 600, 100);
         s.bullets.forEach(b => { s.pools.bullets.release(b); }); s.bullets = [];
         for (const e of s.enemies) {
@@ -365,6 +380,7 @@ export function updateGame(s: GameState, callbacks: GameCallbacks) {
     const triggerDash = s.autoMode ? autoDash : (s.keys.space || s.keys.shift);
     if (triggerDash && p.dashCd <= 0) {
       callbacks.playSound('dash'); p.dashCd = p.maxDashCd; p.invuln = CONFIG.PLAYER.DASH.INVULN_DURATION;
+      if (s.visualGrid) s.visualGrid.applyForce(p.x, p.y, 100, 5, 0.5);
       let dmx = 0, dmy = 0;
       if(s.autoMode) {
           dmx = mx; dmy = my;
@@ -422,6 +438,7 @@ export function updateGame(s: GameState, callbacks: GameCallbacks) {
       // SPECTACULAR: Advanced Weapon Physics
       if (p.weapon === 'RAILGUN') {
           s.shake = 15;
+          CameraSystem.punch(s, -Math.cos(p.angle) * 15, -Math.sin(p.angle) * 15, Utils.rand(-0.05, 0.05), 0.1);
           if (s.visualGrid) {
               for (let j = 0; j < 20; j++) {
                   const fx = p.x + Math.cos(p.angle) * j * 40;
@@ -479,7 +496,7 @@ export function updateGame(s: GameState, callbacks: GameCallbacks) {
             e.rotation = Math.atan2(dyToP, dxToP);
             if (distSqToPlayer < CONFIG.ENEMIES.KAMIKAZE.detectRange**2) { e.phase = 1; e.attackTimer = 0; callbacks.playSound('charge'); }
         }
-        else if (e.phase === 1) { e.vx *= 0.85; e.vy *= 0.85; e.attackTimer++; e.hitFlash = Math.floor(e.attackTimer / 4) % 2 === 0 ? 1 : 0; if (e.attackTimer > 45) { e.dead = true; callbacks.playSound('explosion'); createExplosion(s, e.x, e.y, '#ff4400', 30, 2); createShockwave(s, e.x, e.y, 180, '#ffaa00', 8); s.shake = 15; if (distSqToPlayer < 120 * 120 && p.invuln <= 0) { p.hp -= 35; p.invuln = 45; p.hitFlash = 10; callbacks.playSound('hit'); } } }
+        else if (e.phase === 1) { e.vx *= 0.85; e.vy *= 0.85; e.attackTimer++; e.hitFlash = Math.floor(e.attackTimer / 4) % 2 === 0 ? 1 : 0; if (e.attackTimer > 45) { e.dead = true; callbacks.playSound('explosion'); createExplosion(s, e.x, e.y, '#ff4400', 30, 2); createShockwave(s, e.x, e.y, 180, '#ffaa00', 8, 1.5); s.shake = 15; if (distSqToPlayer < 120 * 120 && p.invuln <= 0) { p.hp -= 35; p.invuln = 45; p.hitFlash = 10; callbacks.playSound('hit'); } } }
       } else if (e.type === 'turret') {
          e.rotation += 0.01;
          if (distSqToPlayer > 400 * 400) {
@@ -566,7 +583,7 @@ export function updateGame(s: GameState, callbacks: GameCallbacks) {
       }
 
       const colDist = e.size + CONFIG.PLAYER.COLLISION_RADIUS;
-      if (p.invuln <= 0 && distSqToPlayer < colDist * colDist) { const damage = e.type === 'boss' ? 40 : 15; s.player.hp -= damage; s.shake = 15; s.player.invuln = CONFIG.PLAYER.INVULN_ON_HIT; s.player.hitFlash = 10; s.combo = 0; s.comboTimer = 0; callbacks.playSound('hit'); createShockwave(s, s.player.x, s.player.y, 100, '#ff0000', 10); if (s.player.hp <= 0) { s.gameOver = true; callbacks.playSound('gameover'); const runData = { score: Math.floor(s.score), wave: s.wave, level: s.player.level, duration: s.runDuration, upgrades: Array.from(s.upgradeStacks.entries()).map(([id, count]) => ({ id, count })), weapon: s.player.weapon }; callbacks.onGameOver(runData); } }
+      if (p.invuln <= 0 && distSqToPlayer < colDist * colDist) { const damage = e.type === 'boss' ? 40 : 15; s.player.hp -= damage; s.shake = 15; s.player.invuln = CONFIG.PLAYER.INVULN_ON_HIT; s.player.hitFlash = 10; s.combo = 0; s.comboTimer = 0; callbacks.playSound('hit'); createShockwave(s, s.player.x, s.player.y, 100, '#ff0000', 10, 0.5); if (s.player.hp <= 0) { s.gameOver = true; callbacks.playSound('gameover'); const runData = { score: Math.floor(s.score), wave: s.wave, level: s.player.level, duration: s.runDuration, upgrades: Array.from(s.upgradeStacks.entries()).map(([id, count]) => ({ id, count })), weapon: s.player.weapon }; callbacks.onGameOver(runData); } }
     }
     
     // Cleanup Logic
@@ -581,6 +598,12 @@ export function updateGame(s: GameState, callbacks: GameCallbacks) {
         // Store previous position for Raycasting
         const prevX = b.x;
         const prevY = b.y;
+
+        // SPECTACULAR: Ballistic Cavitation
+        // Projectiles push fluid density/velocity outward
+        if (s.visualGrid) {
+            s.visualGrid.applyForce(b.x, b.y, b.size * 5, 2.0);
+        }
 
         // PARAMETRIC PHYSICS
         if (b.behavior === 'SINE') {
@@ -660,6 +683,13 @@ export function updateGame(s: GameState, callbacks: GameCallbacks) {
 
             if (isHit) { 
                 e.hp -= b.dmg; e.hitFlash = 3; 
+
+                // SPECTACULAR: Director AI Damage Tracking
+                let dmgType: DamageType = 'KINETIC';
+                if (s.player.weapon === 'VOID') dmgType = 'VOID';
+                else if (b.color === '#ff9900') dmgType = 'THERMAL'; // Shotgun heat
+                DirectorAI.trackDamage(dmgType, b.dmg);
+
                 createExplosion(s, b.x, b.y, b.color, 3, 0.5); 
                 createFloatingText(s, e.x, e.y - 20, Math.floor(b.dmg).toString(), b.color, 14); 
                 
@@ -676,6 +706,7 @@ export function updateGame(s: GameState, callbacks: GameCallbacks) {
                     if (e.isElite || e.type === 'boss') {
                         s.timeScale = 0.05;
                         s.shake = 25;
+                        CameraSystem.punch(s, 0, 0, Utils.rand(-0.1, 0.1), 0.2);
                         s.screenFlash = 0.5;
                         s.flashColor = e.color;
                     }
@@ -748,6 +779,13 @@ export function updateGame(s: GameState, callbacks: GameCallbacks) {
                     e.id = Utils.uid('e'); e.x = pos.x; e.y = pos.y; e.vx = 0; e.vy = 0;
                     e.hp = isElite ? hp * CONFIG.ELITE.HP_MULT : hp; e.maxHp = e.hp;
                     e.type = typeKey.toLowerCase();
+
+                    // SPECTACULAR: Director Mutation Manifestation
+                    const mutation = DirectorAI.getMutationProfile();
+                    if (mutation === 'ARMORED') e.maxHp *= 1.5;
+                    else if (mutation === 'PHASE') e.speed *= 1.3;
+                    else if (mutation === 'SWARM') { e.size *= 0.7; e.speed *= 1.5; }
+
                     e.speed = isElite ? speed * CONFIG.ELITE.SPEED_MULT : speed;
                     e.size = isElite ? cfg.size * CONFIG.ELITE.SIZE_MULT : cfg.size;
                     e.color = isElite ? CONFIG.ELITE.COLOR : cfg.color; e.isElite = isElite;

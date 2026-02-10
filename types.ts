@@ -154,6 +154,7 @@ export interface GameState {
   overdrive: number;
   timeScale: number;
   shake: number;
+  camera: { x: number; y: number; rotation: number; zoom: number; targetX: number; targetY: number; vx: number; vy: number; vr: number; vz: number }; // Kinetic Camera
   screenFlash: number; 
   flashColor: string; 
   startTime: number;

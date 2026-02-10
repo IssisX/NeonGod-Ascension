@@ -1,6 +1,7 @@
 import { CONFIG } from '../constants';
 import { GameState } from '../types';
 import { Utils } from '../utils';
+import { MPMSolver } from './mpm';
 
 // Helper for Procedural Lightning
 const drawLightning = (ctx: CanvasRenderingContext2D, x1: number, y1: number, x2: number, y2: number, color: string, width: number, displace: number) => {
@@ -40,10 +41,12 @@ export const renderGame = (ctx: CanvasRenderingContext2D, s: GameState) => {
 
     ctx.save();
     
-    // Global Shake
-    if (s.shake > 0.5) {
-        ctx.translate(Utils.rand(-s.shake, s.shake), Utils.rand(-s.shake, s.shake));
-    }
+    // SPECTACULAR: Kinetic Camera Application
+    const cam = s.camera;
+    ctx.translate(s.width/2, s.height/2);
+    ctx.scale(cam.zoom, cam.zoom);
+    ctx.rotate(cam.rotation);
+    ctx.translate(-s.width/2 + cam.x, -s.height/2 + cam.y);
 
     // Stars (Far Background with Relativistic Grid Distortion)
     ctx.fillStyle = '#ffffff';
@@ -56,9 +59,18 @@ export const renderGame = (ctx: CanvasRenderingContext2D, s: GameState) => {
 
         // Sample Fluid Grid for Distortion
         if (s.visualGrid) {
-            const vel = s.visualGrid.sampleVelocity(baseX, baseY);
-            x += vel.vx * 2;
-            y += vel.vy * 2;
+            const gridData = s.visualGrid.sampleVelocity(baseX, baseY);
+            x += gridData.vx * 2;
+            y += gridData.vy * 2;
+
+            // SPECTACULAR: Thermal Bloom on Stars
+            const thermalAlpha = Math.min(1, gridData.temp * 0.5);
+            if (thermalAlpha > 0.1) {
+                ctx.fillStyle = '#ffaa44';
+                ctx.globalAlpha = thermalAlpha * 0.5;
+                ctx.fillRect(x-1, y-1, size+2, size+2);
+                ctx.fillStyle = '#ffffff';
+            }
         }
 
         const size = (i % 3) * 0.5 + 0.5;
@@ -69,7 +81,31 @@ export const renderGame = (ctx: CanvasRenderingContext2D, s: GameState) => {
     ctx.globalAlpha = 1;
 
     // RENDER ETHER FIELD (The Dust)
-    if (s.visualGrid) s.visualGrid.render(ctx, s.qualitySettings.gridStep);
+    if (s.visualGrid) {
+        s.visualGrid.render(ctx, s.qualitySettings.gridStep);
+
+        // SPECTACULAR: Thermodynamic Blackbody Radiation Pass
+        const rows = s.visualGrid.rows;
+        const cols = s.visualGrid.cols;
+        const cellSize = s.visualGrid.cellSize;
+        const tempField = s.visualGrid.temp[s.visualGrid.bufferIdx];
+
+        ctx.globalCompositeOperation = 'screen';
+        for (let y = 0; y < rows; y += 2) {
+            for (let x = 0; x < cols; x += 2) {
+                const i = y * cols + x;
+                const t = tempField[i];
+                if (t > 0.1) {
+                    const r = Math.min(255, t * 100 + 100);
+                    const g = Math.min(255, t * 50 + 20);
+                    const b = Math.min(255, t * 20);
+                    ctx.fillStyle = `rgba(${r},${g},${b},${Math.min(0.3, t * 0.2)})`;
+                    ctx.fillRect(x * cellSize, y * cellSize, cellSize * 2, cellSize * 2);
+                }
+            }
+        }
+        ctx.globalCompositeOperation = 'source-over';
+    }
     
     // --- PASS 2: MAIN ENTITIES ---
     const blur = s.qualitySettings.shadowBlur; 
@@ -210,6 +246,27 @@ export const renderGame = (ctx: CanvasRenderingContext2D, s: GameState) => {
         drawEntities(-abX, -abY, 'blue');
     }
     drawEntities(0, 0, 'main');
+
+    // SPECTACULAR: MPM Soft-Body Matter Rendering (Hyperbolic Canvas)
+    for (const p of MPMSolver.particles) {
+        if (!p.active) continue;
+
+        // Stress-driven Thermal Emission
+        const heat = Math.min(1, p.stress * 0.5);
+        if (heat > 0.1) {
+            ctx.fillStyle = `rgba(255, ${200 - heat * 100}, ${100 - heat * 100}, 0.8)`;
+            ctx.beginPath();
+            ctx.arc(p.x, p.y, 3, 0, Math.PI * 2);
+            ctx.fill();
+        } else {
+            ctx.fillStyle = '#00f3ff';
+            ctx.globalAlpha = 0.6;
+            ctx.beginPath();
+            ctx.arc(p.x, p.y, 2, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.globalAlpha = 1.0;
+        }
+    }
 
     // --- PASS 3: OVERLAYS ---
     ctx.globalAlpha = 1;
@@ -364,8 +421,19 @@ export const renderGame = (ctx: CanvasRenderingContext2D, s: GameState) => {
 
         if (s.player.cd > 0) {
            const reloadPct = 1 - (s.player.cd / (20/s.player.stats.fireRateMod)); 
-           ctx.beginPath(); ctx.arc(s.player.x, s.player.y, 40, -Math.PI/2, -Math.PI/2 + (Math.PI * 2 * reloadPct));
-           ctx.strokeStyle = 'rgba(255, 255, 255, 0.2)'; ctx.stroke();
+
+           // SPECTACULAR: Diegetic Reload Vents
+           const radius = 45;
+           ctx.beginPath(); ctx.arc(s.player.x, s.player.y, radius, -Math.PI/2, -Math.PI/2 + (Math.PI * 2 * reloadPct));
+           ctx.strokeStyle = `rgba(0, 243, 255, ${0.1 + reloadPct * 0.4})`; ctx.lineWidth = 4; ctx.stroke();
+
+           // Venting Steam/Heat
+           if (s.frame % 5 === 0) {
+               const ang = -Math.PI/2 + (Math.PI * 2 * reloadPct);
+               const vx = Math.cos(ang) * 2;
+               const vy = Math.sin(ang) * 2;
+               if (s.visualGrid) s.visualGrid.addVelocity(s.player.x + Math.cos(ang) * radius, s.player.y + Math.sin(ang) * radius, vx, vy);
+           }
         }
     }
 

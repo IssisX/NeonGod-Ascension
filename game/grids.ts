@@ -106,10 +106,11 @@ export class VisualGrid {
   width: number;
   height: number;
   
-  // Double Buffer for Velocity Field
+  // Double Buffer for Velocity and Temperature Fields
   // 0: Current (Read), 1: Next (Write)
   vx: [Float32Array, Float32Array];
   vy: [Float32Array, Float32Array];
+  temp: [Float32Array, Float32Array]; // Thermodynamic Temperature Field
   bufferIdx: number = 0; // The active read buffer
 
   particles: EtherParticle[];
@@ -125,6 +126,7 @@ export class VisualGrid {
     const size = this.cols * this.rows;
     this.vx = [new Float32Array(size), new Float32Array(size)];
     this.vy = [new Float32Array(size), new Float32Array(size)];
+    this.temp = [new Float32Array(size), new Float32Array(size)];
     
     this.particles = [];
     this.rebuild(width, height);
@@ -139,6 +141,7 @@ export class VisualGrid {
     const size = this.cols * this.rows;
     this.vx = [new Float32Array(size), new Float32Array(size)];
     this.vy = [new Float32Array(size), new Float32Array(size)];
+    this.temp = [new Float32Array(size), new Float32Array(size)];
     
     // Initialize Ether Particles
     this.particles = [];
@@ -155,7 +158,7 @@ export class VisualGrid {
   }
 
   // Inject energy into the CURRENT write buffer
-  applyForce(x: number, y: number, radius: number, strength: number) {
+  applyForce(x: number, y: number, radius: number, strength: number, heat = 0) {
     const cx = Math.floor(x / this.cellSize);
     const cy = Math.floor(y / this.cellSize);
     const radCells = Math.ceil(radius / this.cellSize);
@@ -165,6 +168,7 @@ export class VisualGrid {
     // (Technically slightly wrong for physics, but feels more responsive for games)
     const fieldVx = this.vx[this.bufferIdx];
     const fieldVy = this.vy[this.bufferIdx];
+    const fieldTemp = this.temp[this.bufferIdx];
 
     for (let i = -radCells; i <= radCells; i++) {
       for (let j = -radCells; j <= radCells; j++) {
@@ -187,6 +191,9 @@ export class VisualGrid {
                  if (dist > 0) {
                      fieldVx[idx] += (dx / dist) * force;
                      fieldVy[idx] += (dy / dist) * force;
+                 }
+                 if (heat !== 0) {
+                     fieldTemp[idx] += force * heat;
                  }
              }
         }
@@ -211,9 +218,9 @@ export class VisualGrid {
       const cy = (y / this.cellSize) | 0;
       if (cx >= 0 && cx < this.cols && cy >= 0 && cy < this.rows) {
           const idx = cy * this.cols + cx;
-          return { vx: this.vx[this.bufferIdx][idx], vy: this.vy[this.bufferIdx][idx] };
+          return { vx: this.vx[this.bufferIdx][idx], vy: this.vy[this.bufferIdx][idx], temp: this.temp[this.bufferIdx][idx] };
       }
-      return { vx: 0, vy: 0 };
+      return { vx: 0, vy: 0, temp: 0 };
   }
 
   update(step = 1) {
@@ -222,8 +229,10 @@ export class VisualGrid {
     
     const rVx = this.vx[readIdx];
     const rVy = this.vy[readIdx];
+    const rTemp = this.temp[readIdx];
     const wVx = this.vx[writeIdx];
     const wVy = this.vy[writeIdx];
+    const wTemp = this.temp[writeIdx];
 
     const decay = CONFIG.ETHER.DRAG;
     const diffusion = CONFIG.ETHER.DIFFUSION; 
@@ -248,10 +257,17 @@ export class VisualGrid {
             // NewVal = CurrentVal + Diffusion * (AverageNeighbors - CurrentVal)
             const avgVx = (rVx[iL] + rVx[iR] + rVx[iU] + rVx[iD]) * 0.25;
             const avgVy = (rVy[iL] + rVy[iR] + rVy[iU] + rVy[iD]) * 0.25;
+            const avgTemp = (rTemp[iL] + rTemp[iR] + rTemp[iU] + rTemp[iD]) * 0.25;
             
             // Write to next buffer
             wVx[i] = Utils.lerp(rVx[i], avgVx, diffusion) * decay;
-            wVy[i] = Utils.lerp(rVy[i], avgVy, diffusion) * decay;
+
+            // SPECTACULAR: Thermodynamic Buoyancy
+            // Hotter areas rise (subtract from vy)
+            const buoyancy = rTemp[i] * 0.15;
+            wVy[i] = (Utils.lerp(rVy[i], avgVy, diffusion) - buoyancy) * decay;
+
+            wTemp[i] = Utils.lerp(rTemp[i], avgTemp, diffusion * 0.5) * 0.95; // Temp dissipates faster
         }
     }
     
