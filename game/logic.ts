@@ -450,7 +450,31 @@ export function updateGame(s: GameState, callbacks: GameCallbacks) {
          e.vx *= 0.94; e.vy *= 0.94; e.x += e.vx * s.timeScale; e.y += e.vy * s.timeScale; e.x = Utils.clamp(e.x, e.size, s.width - e.size); e.y = Utils.clamp(e.y, e.size, s.height - e.size);
       } else if (e.type === 'projectile') { e.x += e.vx * s.timeScale; e.y += e.vy * s.timeScale; e.life--; if (e.life <= 0 || !Utils.inBounds(e.x, e.y, s.width, s.height, 100)) e.dead = true; }
       else if (e.type === 'shooter') { if (distToPlayer < 250) { e.vx -= Math.cos(toPlayerAng) * 0.15; e.vy -= Math.sin(toPlayerAng) * 0.15; } else { e.vx += Math.cos(toPlayerAng) * 0.1; e.vy += Math.sin(toPlayerAng) * 0.1; } e.shootTimer++; if (e.shootTimer >= CONFIG.ENEMIES.SHOOTER.shootInterval && distToPlayer < 400) { e.shootTimer = 0; callbacks.playSound('shoot'); const proj = s.pools.enemies.acquire(); if (proj) { proj.id = Utils.uid('es'); proj.x = e.x; proj.y = e.y; proj.vx = Math.cos(toPlayerAng) * 5; proj.vy = Math.sin(toPlayerAng) * 5; proj.type = 'projectile'; proj.size = 5; proj.color = e.color; proj.life = 150; proj.hp = 1; proj.active = true; s.enemies.push(proj); } } const spd = Math.hypot(e.vx, e.vy); if (spd > e.speed) { e.vx = (e.vx / spd) * e.speed; e.vy = (e.vy / spd) * e.speed; } e.x += e.vx * s.timeScale; e.y += e.vy * s.timeScale; }
-      else { const accel = e.type === 'tank' ? 0.15 : 0.2; e.vx += Math.cos(toPlayerAng) * accel; e.vy += Math.sin(toPlayerAng) * accel; if (s.quality !== 'LOW') { const nearby = s.spatialGrid.queryRadius(e.x, e.y, e.size * 3); for (const other of nearby) { if (other.id !== e.id && other.type !== 'projectile' && other.active) { const d = Utils.dist(e.x, e.y, other.x, other.y); if (d < e.size * 2 && d > 0) { const pa = Math.atan2(e.y - other.y, e.x - other.x); e.vx += Math.cos(pa) * 0.3; e.vy += Math.sin(pa) * 0.3; } } } } const spd = Math.hypot(e.vx, e.vy); if (spd > e.speed) { e.vx = (e.vx / spd) * e.speed; e.vy = (e.vy / spd) * e.speed; } e.x += e.vx * s.timeScale; e.y += e.vy * s.timeScale; }
+      else {
+        const accel = e.type === 'tank' ? 0.15 : 0.2;
+        e.vx += Math.cos(toPlayerAng) * accel;
+        e.vy += Math.sin(toPlayerAng) * accel;
+        if (s.quality !== 'LOW') {
+          const nearby = s.spatialGrid.queryRadius(e.x, e.y, e.size * 3);
+          for (const other of nearby) {
+            if (other.id !== e.id && other.type !== 'projectile' && other.active) {
+              const dx = e.x - other.x;
+              const dy = e.y - other.y;
+              const distSq = dx * dx + dy * dy;
+              const radSum = e.size * 2;
+              if (distSq < radSum * radSum && distSq > 0) {
+                const dist = Math.sqrt(distSq);
+                const force = 0.3 / dist;
+                e.vx += dx * force;
+                e.vy += dy * force;
+              }
+            }
+          }
+        }
+        const spd = Math.hypot(e.vx, e.vy);
+        if (spd > e.speed) { e.vx = (e.vx / spd) * e.speed; e.vy = (e.vy / spd) * e.speed; }
+        e.x += e.vx * s.timeScale; e.y += e.vy * s.timeScale;
+      }
       if (e.type !== 'boss') { const spd = Math.hypot(e.vx, e.vy); if (spd > e.speed) { e.vx = (e.vx / spd) * e.speed; e.vy = (e.vy / spd) * e.speed; } e.x += e.vx * s.timeScale; e.y += e.vy * s.timeScale; }
 
       if (p.invuln <= 0 && Utils.dist(e.x, e.y, p.x, p.y) < e.size + CONFIG.PLAYER.COLLISION_RADIUS) { const damage = e.type === 'boss' ? 40 : 15; s.player.hp -= damage; s.shake = 15; s.player.invuln = CONFIG.PLAYER.INVULN_ON_HIT; s.player.hitFlash = 10; s.combo = 0; s.comboTimer = 0; callbacks.playSound('hit'); createShockwave(s, s.player.x, s.player.y, 100, '#ff0000', 10); if (s.player.hp <= 0) { s.gameOver = true; callbacks.playSound('gameover'); const runData = { score: Math.floor(s.score), wave: s.wave, level: s.player.level, duration: s.runDuration, upgrades: Array.from(s.upgradeStacks.entries()).map(([id, count]) => ({ id, count })), weapon: s.player.weapon }; callbacks.onGameOver(runData); } }

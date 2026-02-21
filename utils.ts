@@ -1,5 +1,6 @@
 export const Utils = {
   dist: (x1: number, y1: number, x2: number, y2: number) => Math.hypot(x2 - x1, y2 - y1),
+  distSq: (x1: number, y1: number, x2: number, y2: number) => (x1 - x2) ** 2 + (y1 - y2) ** 2,
   rand: (min: number, max: number) => Math.random() * (max - min) + min,
   lerp: (a: number, b: number, t: number) => a * (1 - t) + b * t,
   clamp: (v: number, min: number, max: number) => Math.max(min, Math.min(max, v)),
