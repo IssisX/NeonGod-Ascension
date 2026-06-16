@@ -166,36 +166,41 @@ const createPickup = (s: GameState, x: number, y: number) => {
 };
 
 // --- AUTOPILOT AI ---
-function calculateAutoPilot(s: GameState): { mx: number; my: number; aimAngle: number; shoot: boolean; dash: boolean; ult: boolean } {
+export function calculateAutoPilot(s: GameState): { mx: number; my: number; aimAngle: number; shoot: boolean; dash: boolean; ult: boolean } {
     const p = s.player;
     let moveX = 0, moveY = 0, totalDanger = 0;
     const searchRadius = 250;
+    const searchRadiusSq = searchRadius * searchRadius;
     const nearby = s.spatialGrid.queryRadius(p.x, p.y, searchRadius);
     let nearestEnemy: Enemy | null = null;
-    let minEnemyDist = Infinity;
+    let minEnemyDistSq = Infinity;
 
     for (const e of nearby) {
         if (!e.active || e.dead || e.type === 'projectile') continue; 
-        const dist = Utils.dist(p.x, p.y, e.x, e.y);
-        if (e.type !== 'projectile' && dist < minEnemyDist) { minEnemyDist = dist; nearestEnemy = e; }
-        if (dist < searchRadius) {
+        const dSq = Utils.distSq(p.x, p.y, e.x, e.y);
+        if (e.type !== 'projectile' && dSq < minEnemyDistSq) { minEnemyDistSq = dSq; nearestEnemy = e; }
+        if (dSq < searchRadiusSq) {
+            const dist = Math.sqrt(dSq);
             const weight = (1 - dist / searchRadius);
             const force = weight * weight * (e.type === 'projectile' || e.type === 'kamikaze' ? 5.0 : 2.0); 
-            const angle = Math.atan2(p.y - e.y, p.x - e.x);
-            moveX += Math.cos(angle) * force; moveY += Math.sin(angle) * force;
+            // Replace trig with vector math
+            const invDist = dist > 0 ? 1 / dist : 0;
+            moveX += (p.x - e.x) * invDist * force;
+            moveY += (p.y - e.y) * invDist * force;
             totalDanger += force;
         }
     }
 
     if (totalDanger < 3.0) {
         let nearestGem: Gem | Pickup | null = null;
-        let minGemDist = Infinity;
-        for (const pick of s.pickups) { if (!pick.active) continue; const dist = Utils.dist(p.x, p.y, pick.x, pick.y); if (dist < minGemDist) { minGemDist = dist; nearestGem = pick; } }
-        if (!nearestGem) { for (const g of s.gems) { if (!g.active) continue; const dist = Utils.dist(p.x, p.y, g.x, g.y); if (dist < minGemDist) { minGemDist = dist; nearestGem = g; } } }
+        let minGemDistSq = Infinity;
+        for (const pick of s.pickups) { if (!pick.active) continue; const dSq = Utils.distSq(p.x, p.y, pick.x, pick.y); if (dSq < minGemDistSq) { minGemDistSq = dSq; nearestGem = pick; } }
+        if (!nearestGem) { for (const g of s.gems) { if (!g.active) continue; const dSq = Utils.distSq(p.x, p.y, g.x, g.y); if (dSq < minGemDistSq) { minGemDistSq = dSq; nearestGem = g; } } }
         if (nearestGem) {
-            const angle = Math.atan2(nearestGem.y - p.y, nearestGem.x - p.x);
-            const pullStrength = totalDanger < 1.0 ? 1.5 : 0.5;
-            moveX += Math.cos(angle) * pullStrength; moveY += Math.sin(angle) * pullStrength;
+            const dist = Math.sqrt(minGemDistSq);
+            const pullStrength = dist > 0 ? (totalDanger < 1.0 ? 1.5 : 0.5) / dist : 0;
+            moveX += (nearestGem.x - p.x) * pullStrength;
+            moveY += (nearestGem.y - p.y) * pullStrength;
         }
     }
 
@@ -207,18 +212,29 @@ function calculateAutoPilot(s: GameState): { mx: number; my: number; aimAngle: n
 
     let aimAngle = p.angle;
     if (!nearestEnemy) {
-        // Fallback search if grid was empty (though grid is now robust)
-        for (const e of s.enemies) {
+        // Fallback search with larger radius before full scan
+        const fallbackRadius = 1000;
+        const nearbyFallback = s.spatialGrid.queryRadius(p.x, p.y, fallbackRadius);
+        for (const e of nearbyFallback) {
             if (!e.active || e.dead || e.type === 'projectile') continue;
-            const dist = Utils.dist(p.x, p.y, e.x, e.y);
-            if (dist < minEnemyDist) { minEnemyDist = dist; nearestEnemy = e; }
+            const dSq = Utils.distSq(p.x, p.y, e.x, e.y);
+            if (dSq < minEnemyDistSq) { minEnemyDistSq = dSq; nearestEnemy = e; }
+        }
+
+        if (!nearestEnemy) {
+            // Ultimate fallback (full scan)
+            for (const e of s.enemies) {
+                if (!e.active || e.dead || e.type === 'projectile') continue;
+                const dSq = Utils.distSq(p.x, p.y, e.x, e.y);
+                if (dSq < minEnemyDistSq) { minEnemyDistSq = dSq; nearestEnemy = e; }
+            }
         }
     }
 
     if (nearestEnemy) {
         const weaponConfig = CONFIG.WEAPONS[p.weapon];
         const bulletSpeed = weaponConfig.speed;
-        const dist = minEnemyDist;
+        const dist = Math.sqrt(minEnemyDistSq);
         const timeToHit = dist / bulletSpeed;
         const futureX = nearestEnemy.x + nearestEnemy.vx * timeToHit;
         const futureY = nearestEnemy.y + nearestEnemy.vy * timeToHit;
