@@ -4,6 +4,7 @@ export interface Entity {
   vx: number;
   vy: number;
   active: boolean;
+  kind?: 'enemy' | 'gem' | 'pickup' | 'bullet' | 'projectile';
 }
 
 export interface Player extends Entity {
